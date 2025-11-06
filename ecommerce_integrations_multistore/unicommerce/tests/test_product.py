@@ -1,9 +1,9 @@
 import frappe
 import responses
 
-from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
-from ecommerce_integrations.unicommerce.constants import MODULE_NAME
-from ecommerce_integrations.unicommerce.product import (
+from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.unicommerce.constants import MODULE_NAME
+from ecommerce_integrations_multistore.unicommerce.product import (
 	_build_unicommerce_item,
 	_get_barcode_data,
 	_get_item_group,
@@ -11,7 +11,7 @@ from ecommerce_integrations.unicommerce.product import (
 	_validate_field,
 	import_product_from_unicommerce,
 )
-from ecommerce_integrations.unicommerce.tests.test_client import TestCaseApiClient
+from ecommerce_integrations_multistore.unicommerce.tests.test_client import TestCaseApiClient
 
 
 class TestUnicommerceProduct(TestCaseApiClient):

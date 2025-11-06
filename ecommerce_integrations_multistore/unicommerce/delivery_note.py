@@ -1,8 +1,8 @@
 import frappe
 
-from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
-from ecommerce_integrations.unicommerce.constants import ORDER_CODE_FIELD, SETTINGS_DOCTYPE
-from ecommerce_integrations.unicommerce.utils import create_unicommerce_log
+from ecommerce_integrations_multistore.unicommerce.api_client import UnicommerceAPIClient
+from ecommerce_integrations_multistore.unicommerce.constants import ORDER_CODE_FIELD, SETTINGS_DOCTYPE
+from ecommerce_integrations_multistore.unicommerce.utils import create_unicommerce_log
 
 
 @frappe.whitelist()

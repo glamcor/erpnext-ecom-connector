@@ -38,7 +38,7 @@ frappe.ui.form.on("Pick List", {
 			);
 		});
 		frappe.call({
-			method: "ecommerce_integrations.unicommerce.invoice.generate_unicommerce_invoices",
+			method: "ecommerce_integrations_multistore.unicommerce.invoice.generate_unicommerce_invoices",
 			args: {
 				sales_orders: sales_orders,
 				warehouse_allocation: warehouse_allocation,

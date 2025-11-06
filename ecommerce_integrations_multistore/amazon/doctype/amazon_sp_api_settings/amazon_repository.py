@@ -9,14 +9,14 @@ import dateutil
 import frappe
 from frappe import _
 
-from ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_sp_api import (
+from ecommerce_integrations_multistore.amazon.doctype.amazon_sp_api_settings.amazon_sp_api import (
 	SPAPI,
 	CatalogItems,
 	Finances,
 	Orders,
 	SPAPIError,
 )
-from ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_settings import (
+from ecommerce_integrations_multistore.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_settings import (
 	AmazonSPAPISettings,
 )
 

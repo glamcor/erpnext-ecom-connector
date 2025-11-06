@@ -4,18 +4,18 @@ from copy import deepcopy
 import frappe
 from frappe.test_runner import make_test_records
 
-from ecommerce_integrations.unicommerce.constants import (
+from ecommerce_integrations_multistore.unicommerce.constants import (
 	CHANNEL_ID_FIELD,
 	ORDER_CODE_FIELD,
 	ORDER_STATUS_FIELD,
 )
-from ecommerce_integrations.unicommerce.order import (
+from ecommerce_integrations_multistore.unicommerce.order import (
 	_get_facility_code,
 	_get_line_items,
 	_sync_order_items,
 	create_order,
 )
-from ecommerce_integrations.unicommerce.tests.test_client import TestCaseApiClient
+from ecommerce_integrations_multistore.unicommerce.tests.test_client import TestCaseApiClient
 
 
 class TestUnicommerceOrder(TestCaseApiClient):

@@ -9,14 +9,14 @@ from frappe import _
 from shopify.resources import Webhook
 from shopify.session import Session
 
-from ecommerce_integrations.shopify.constants import (
+from ecommerce_integrations_multistore.shopify.constants import (
 	API_VERSION,
 	EVENT_MAPPER,
 	SETTING_DOCTYPE,
 	STORE_DOCTYPE,
 	WEBHOOK_EVENTS,
 )
-from ecommerce_integrations.shopify.utils import create_shopify_log
+from ecommerce_integrations_multistore.shopify.utils import create_shopify_log
 
 
 def temp_shopify_session(func):
@@ -110,7 +110,7 @@ def get_callback_url() -> str:
 	"""
 	url = get_current_domain_name()
 
-	return f"https://{url}/api/method/ecommerce_integrations.shopify.connection.store_request_data"
+	return f"https://{url}/api/method/ecommerce_integrations_multistore.shopify.connection.store_request_data"
 
 
 @frappe.whitelist(allow_guest=True)

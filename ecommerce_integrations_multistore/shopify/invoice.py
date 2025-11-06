@@ -2,14 +2,14 @@ import frappe
 from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
 from frappe.utils import cint, cstr, getdate, nowdate
 
-from ecommerce_integrations.shopify.constants import (
+from ecommerce_integrations_multistore.shopify.constants import (
 	ORDER_ID_FIELD,
 	ORDER_NUMBER_FIELD,
 	SETTING_DOCTYPE,
 	STORE_DOCTYPE,
 	STORE_LINK_FIELD,
 )
-from ecommerce_integrations.shopify.utils import create_shopify_log
+from ecommerce_integrations_multistore.shopify.utils import create_shopify_log
 
 
 def prepare_sales_invoice(payload, request_id=None, store_name=None):
@@ -20,7 +20,7 @@ def prepare_sales_invoice(payload, request_id=None, store_name=None):
 	    request_id: Integration log ID
 	    store_name: Shopify Store name (multi-store support)
 	"""
-	from ecommerce_integrations.shopify.order import get_sales_order
+	from ecommerce_integrations_multistore.shopify.order import get_sales_order
 
 	order = payload
 

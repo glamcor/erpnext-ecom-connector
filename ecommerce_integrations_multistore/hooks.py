@@ -14,12 +14,12 @@ required_apps = ["frappe/erpnext"]
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/ecommerce_integrations/css/ecommerce_integrations.css"
-# app_include_js = "/assets/ecommerce_integrations/js/ecommerce_integrations.js"
+# app_include_css = "/assets/ecommerce_integrations/css/ecommerce_integrations_multistore.css"
+# app_include_js = "/assets/ecommerce_integrations/js/ecommerce_integrations_multistore.js"
 
 # include js, css files in header of web template
-# web_include_css = "/assets/ecommerce_integrations/css/ecommerce_integrations.css"
-# web_include_js = "/assets/ecommerce_integrations/js/ecommerce_integrations.js"
+# web_include_css = "/assets/ecommerce_integrations/css/ecommerce_integrations_multistore.css"
+# web_include_js = "/assets/ecommerce_integrations/js/ecommerce_integrations_multistore.js"
 
 # include custom scss in every website theme (without file extension ".scss")
 # website_theme_scss = "ecommerce_integrations/public/scss/website"
@@ -70,17 +70,17 @@ doctype_js = {
 # Installation
 # ------------
 
-# before_install = "ecommerce_integrations.install.before_install"
-# after_install = "ecommerce_integrations.install.after_install"
+# before_install = "ecommerce_integrations_multistore.install.before_install"
+# after_install = "ecommerce_integrations_multistore.install.after_install"
 
 
-before_uninstall = "ecommerce_integrations.uninstall.before_uninstall"
+before_uninstall = "ecommerce_integrations_multistore.uninstall.before_uninstall"
 
 # Desk Notifications
 # ------------------
 # See frappe.core.notifications.get_notification_config
 
-# notification_config = "ecommerce_integrations.notifications.get_notification_config"
+# notification_config = "ecommerce_integrations_multistore.notifications.get_notification_config"
 
 # Permissions
 # -----------
@@ -108,27 +108,27 @@ before_uninstall = "ecommerce_integrations.uninstall.before_uninstall"
 
 doc_events = {
 	"Item": {
-		"after_insert": "ecommerce_integrations.shopify.product.upload_erpnext_item",
-		"on_update": "ecommerce_integrations.shopify.product.upload_erpnext_item",
+		"after_insert": "ecommerce_integrations_multistore.shopify.product.upload_erpnext_item",
+		"on_update": "ecommerce_integrations_multistore.shopify.product.upload_erpnext_item",
 		"validate": [
-			"ecommerce_integrations.utils.taxation.validate_tax_template",
-			"ecommerce_integrations.unicommerce.product.validate_item",
+			"ecommerce_integrations_multistore.utils.taxation.validate_tax_template",
+			"ecommerce_integrations_multistore.unicommerce.product.validate_item",
 		],
 	},
 	"Sales Order": {
-		"on_update_after_submit": "ecommerce_integrations.unicommerce.order.update_shipping_info",
-		"on_cancel": "ecommerce_integrations.unicommerce.status_updater.ignore_pick_list_on_sales_order_cancel",
+		"on_update_after_submit": "ecommerce_integrations_multistore.unicommerce.order.update_shipping_info",
+		"on_cancel": "ecommerce_integrations_multistore.unicommerce.status_updater.ignore_pick_list_on_sales_order_cancel",
 	},
 	"Stock Entry": {
-		"validate": "ecommerce_integrations.unicommerce.grn.validate_stock_entry_for_grn",
-		"on_submit": "ecommerce_integrations.unicommerce.grn.upload_grn",
-		"on_cancel": "ecommerce_integrations.unicommerce.grn.prevent_grn_cancel",
+		"validate": "ecommerce_integrations_multistore.unicommerce.grn.validate_stock_entry_for_grn",
+		"on_submit": "ecommerce_integrations_multistore.unicommerce.grn.upload_grn",
+		"on_cancel": "ecommerce_integrations_multistore.unicommerce.grn.prevent_grn_cancel",
 	},
-	"Item Price": {"on_change": "ecommerce_integrations.utils.price_list.discard_item_prices"},
-	"Pick List": {"validate": "ecommerce_integrations.unicommerce.pick_list.validate"},
+	"Item Price": {"on_change": "ecommerce_integrations_multistore.utils.price_list.discard_item_prices"},
+	"Pick List": {"validate": "ecommerce_integrations_multistore.unicommerce.pick_list.validate"},
 	"Sales Invoice": {
-		"on_submit": "ecommerce_integrations.unicommerce.invoice.on_submit",
-		"on_cancel": "ecommerce_integrations.unicommerce.invoice.on_cancel",
+		"on_submit": "ecommerce_integrations_multistore.unicommerce.invoice.on_submit",
+		"on_cancel": "ecommerce_integrations_multistore.unicommerce.invoice.on_cancel",
 	},
 }
 
@@ -138,58 +138,58 @@ doc_events = {
 scheduler_events = {
 	"all": [
 		# Multi-store orchestrator dispatches per-store jobs in parallel
-		"ecommerce_integrations.shopify.orchestrator.orchestrate_inventory_sync",
+		"ecommerce_integrations_multistore.shopify.orchestrator.orchestrate_inventory_sync",
 		# Legacy: backward compatible singleton inventory sync
-		"ecommerce_integrations.shopify.inventory.update_inventory_on_shopify",
+		"ecommerce_integrations_multistore.shopify.inventory.update_inventory_on_shopify",
 	],
 	"daily": [],
-	"daily_long": ["ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_stocks"],
+	"daily_long": ["ecommerce_integrations_multistore.zenoti.doctype.zenoti_settings.zenoti_settings.sync_stocks"],
 	"hourly": [
 		# Multi-store orchestrator for order sync
-		"ecommerce_integrations.shopify.orchestrator.orchestrate_order_sync",
+		"ecommerce_integrations_multistore.shopify.orchestrator.orchestrate_order_sync",
 		# Legacy: backward compatible singleton order sync
-		"ecommerce_integrations.shopify.order.sync_old_orders",
-		"ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_settings.schedule_get_order_details",
+		"ecommerce_integrations_multistore.shopify.order.sync_old_orders",
+		"ecommerce_integrations_multistore.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_settings.schedule_get_order_details",
 	],
 	"hourly_long": [
-		"ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_invoices",
-		"ecommerce_integrations.unicommerce.product.upload_new_items",
-		"ecommerce_integrations.unicommerce.status_updater.update_sales_order_status",
-		"ecommerce_integrations.unicommerce.status_updater.update_shipping_package_status",
+		"ecommerce_integrations_multistore.zenoti.doctype.zenoti_settings.zenoti_settings.sync_invoices",
+		"ecommerce_integrations_multistore.unicommerce.product.upload_new_items",
+		"ecommerce_integrations_multistore.unicommerce.status_updater.update_sales_order_status",
+		"ecommerce_integrations_multistore.unicommerce.status_updater.update_shipping_package_status",
 	],
 	"weekly": [],
 	"monthly": [],
 	"cron": {
 		# Every five minutes
 		"*/5 * * * *": [
-			"ecommerce_integrations.unicommerce.order.sync_new_orders",
-			"ecommerce_integrations.unicommerce.inventory.update_inventory_on_unicommerce",
-			"ecommerce_integrations.unicommerce.delivery_note.prepare_delivery_note",
+			"ecommerce_integrations_multistore.unicommerce.order.sync_new_orders",
+			"ecommerce_integrations_multistore.unicommerce.inventory.update_inventory_on_unicommerce",
+			"ecommerce_integrations_multistore.unicommerce.delivery_note.prepare_delivery_note",
 		],
 	},
 }
 
 
 # bootinfo - hide old doctypes
-extend_bootinfo = "ecommerce_integrations.boot.boot_session"
+extend_bootinfo = "ecommerce_integrations_multistore.boot.boot_session"
 
 # Testing
 # -------
 
-before_tests = "ecommerce_integrations.utils.before_test.before_tests"
+before_tests = "ecommerce_integrations_multistore.utils.before_test.before_tests"
 
 # Overriding Methods
 # ------------------------------
 #
 # override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "ecommerce_integrations.event.get_events"
+# 	"frappe.desk.doctype.event.event.get_events": "ecommerce_integrations_multistore.event.get_events"
 # }
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
 # override_doctype_dashboards = {
-# 	"Task": "ecommerce_integrations.task.get_dashboard_data"
+# 	"Task": "ecommerce_integrations_multistore.task.get_dashboard_data"
 # }
 
 # exempt linked doctypes from being automatically cancelled

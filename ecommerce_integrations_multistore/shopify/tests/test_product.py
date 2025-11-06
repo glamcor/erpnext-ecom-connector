@@ -3,7 +3,7 @@
 
 import frappe
 
-from ecommerce_integrations.shopify.product import ShopifyProduct
+from ecommerce_integrations_multistore.shopify.product import ShopifyProduct
 
 from .utils import TestCase
 
@@ -90,7 +90,7 @@ class TestProduct(TestCase):
 
 		shopify_product = Product.find(product.product_id)
 
-		from ecommerce_integrations.shopify.product import map_erpnext_variant_to_shopify_variant
+		from ecommerce_integrations_multistore.shopify.product import map_erpnext_variant_to_shopify_variant
 
 		self.assertEqual(
 			map_erpnext_variant_to_shopify_variant(

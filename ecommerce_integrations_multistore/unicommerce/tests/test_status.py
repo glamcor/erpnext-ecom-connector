@@ -1,11 +1,11 @@
 import frappe
 
-from ecommerce_integrations.unicommerce.cancellation_and_returns import (
+from ecommerce_integrations_multistore.unicommerce.cancellation_and_returns import (
 	_delete_cancelled_items,
 	_serialize_items,
 )
-from ecommerce_integrations.unicommerce.constants import ORDER_ITEM_CODE_FIELD
-from ecommerce_integrations.unicommerce.tests.test_client import TestCaseApiClient
+from ecommerce_integrations_multistore.unicommerce.constants import ORDER_ITEM_CODE_FIELD
+from ecommerce_integrations_multistore.unicommerce.tests.test_client import TestCaseApiClient
 
 
 class TestUnicommerceStatusUpdates(TestCaseApiClient):

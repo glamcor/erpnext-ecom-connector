@@ -6,10 +6,10 @@ from typing import Any, NewType
 import frappe
 from frappe.utils import add_to_date, flt
 
-from ecommerce_integrations.controllers.scheduling import need_to_run
-from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
-from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
-from ecommerce_integrations.unicommerce.constants import (
+from ecommerce_integrations_multistore.controllers.scheduling import need_to_run
+from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.unicommerce.api_client import UnicommerceAPIClient
+from ecommerce_integrations_multistore.unicommerce.constants import (
 	CHANNEL_ID_FIELD,
 	CHANNEL_TAX_ACCOUNT_FIELD_MAP,
 	FACILITY_CODE_FIELD,
@@ -25,10 +25,10 @@ from ecommerce_integrations.unicommerce.constants import (
 	TAX_FIELDS_MAPPING,
 	TAX_RATE_FIELDS_MAPPING,
 )
-from ecommerce_integrations.unicommerce.customer import sync_customer
-from ecommerce_integrations.unicommerce.product import import_product_from_unicommerce
-from ecommerce_integrations.unicommerce.utils import create_unicommerce_log, get_unicommerce_date
-from ecommerce_integrations.utils.taxation import get_dummy_tax_category
+from ecommerce_integrations_multistore.unicommerce.customer import sync_customer
+from ecommerce_integrations_multistore.unicommerce.product import import_product_from_unicommerce
+from ecommerce_integrations_multistore.unicommerce.utils import create_unicommerce_log, get_unicommerce_date
+from ecommerce_integrations_multistore.utils.taxation import get_dummy_tax_category
 
 UnicommerceOrder = NewType("UnicommerceOrder", dict[str, Any])
 
@@ -87,7 +87,7 @@ def _get_new_orders(client: UnicommerceAPIClient, status: str | None) -> Iterato
 def _create_sales_invoices(unicommerce_order, sales_order, client: UnicommerceAPIClient):
 	"""Create sales invoice from sales orders, used when integration is only
 	syncing finshed orders from Unicommerce."""
-	from ecommerce_integrations.unicommerce.invoice import create_sales_invoice
+	from ecommerce_integrations_multistore.unicommerce.invoice import create_sales_invoice
 
 	facility_code = sales_order.get(FACILITY_CODE_FIELD)
 	shipping_packages = unicommerce_order["shippingPackages"]
@@ -133,7 +133,7 @@ def create_order(payload: UnicommerceOrder, request_id: str | None = None, clien
 	# If a sales order already exists, then every time it's executed
 	if request_id is None:
 		log = create_unicommerce_log(
-			method="ecommerce_integrations.unicommerce.order.create_order", request_data=payload
+			method="ecommerce_integrations_multistore.unicommerce.order.create_order", request_data=payload
 		)
 		request_id = log.name
 

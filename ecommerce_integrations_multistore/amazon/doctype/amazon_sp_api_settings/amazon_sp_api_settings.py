@@ -78,7 +78,7 @@ class AmazonSPAPISettings(Document):
 			frappe.throw(_("The date must be within the last 30 days."))
 
 	def validate_credentials(self):
-		from ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_repository import (
+		from ecommerce_integrations_multistore.amazon.doctype.amazon_sp_api_settings.amazon_repository import (
 			validate_amazon_sp_api_credentials,
 		)
 
@@ -111,7 +111,7 @@ class AmazonSPAPISettings(Document):
 
 	@frappe.whitelist()
 	def get_order_details(self):
-		from ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_repository import (
+		from ecommerce_integrations_multistore.amazon.doctype.amazon_sp_api_settings.amazon_repository import (
 			get_orders,
 		)
 
@@ -137,7 +137,7 @@ class AmazonSPAPISettings(Document):
 
 # Called via a hook in every hour.
 def schedule_get_order_details():
-	from ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_repository import (
+	from ecommerce_integrations_multistore.amazon.doctype.amazon_sp_api_settings.amazon_repository import (
 		get_orders,
 	)
 

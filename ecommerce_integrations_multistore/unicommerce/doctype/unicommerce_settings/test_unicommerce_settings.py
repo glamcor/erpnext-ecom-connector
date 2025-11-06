@@ -5,8 +5,8 @@ import frappe
 import responses
 from frappe.utils import now, now_datetime
 
-from ecommerce_integrations.unicommerce.constants import SETTINGS_DOCTYPE
-from ecommerce_integrations.unicommerce.tests.utils import TestCase
+from ecommerce_integrations_multistore.unicommerce.constants import SETTINGS_DOCTYPE
+from ecommerce_integrations_multistore.unicommerce.tests.utils import TestCase
 
 
 class TestUnicommerceSettings(TestCase):

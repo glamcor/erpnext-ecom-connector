@@ -8,10 +8,10 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.model.document import Document
 from frappe.utils import add_to_date, cint, cstr, date_diff, get_datetime
 
-from ecommerce_integrations.zenoti.purchase_transactions import process_purchase_orders
-from ecommerce_integrations.zenoti.sales_transactions import process_sales_invoices
-from ecommerce_integrations.zenoti.stock_reconciliation import process_stock_reconciliation
-from ecommerce_integrations.zenoti.utils import api_url, get_all_centers, get_list_of_centers
+from ecommerce_integrations_multistore.zenoti.purchase_transactions import process_purchase_orders
+from ecommerce_integrations_multistore.zenoti.sales_transactions import process_sales_invoices
+from ecommerce_integrations_multistore.zenoti.stock_reconciliation import process_stock_reconciliation
+from ecommerce_integrations_multistore.zenoti.utils import api_url, get_all_centers, get_list_of_centers
 
 
 class ZenotiSettings(Document):

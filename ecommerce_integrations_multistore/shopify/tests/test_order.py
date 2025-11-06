@@ -4,7 +4,7 @@
 import json
 import unittest
 
-from ecommerce_integrations.shopify.order import sync_sales_order
+from ecommerce_integrations_multistore.shopify.order import sync_sales_order
 
 
 class TestOrder(unittest.TestCase):

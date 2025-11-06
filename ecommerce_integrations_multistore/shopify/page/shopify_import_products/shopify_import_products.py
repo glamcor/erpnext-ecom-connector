@@ -4,10 +4,10 @@ import frappe
 from frappe.exceptions import UniqueValidationError
 from shopify.resources import Product
 
-from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
-from ecommerce_integrations.shopify.connection import temp_shopify_session
-from ecommerce_integrations.shopify.constants import MODULE_NAME
-from ecommerce_integrations.shopify.product import ShopifyProduct
+from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.shopify.connection import temp_shopify_session
+from ecommerce_integrations_multistore.shopify.constants import MODULE_NAME
+from ecommerce_integrations_multistore.shopify.product import ShopifyProduct
 
 # constants
 SYNC_JOB_NAME = "shopify.job.sync.all.products"

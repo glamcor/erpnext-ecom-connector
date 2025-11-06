@@ -7,8 +7,8 @@ import frappe
 from shopify.resources import Webhook
 from shopify.session import Session
 
-from ecommerce_integrations.shopify import connection
-from ecommerce_integrations.shopify.constants import API_VERSION, SETTING_DOCTYPE
+from ecommerce_integrations_multistore.shopify import connection
+from ecommerce_integrations_multistore.shopify.constants import API_VERSION, SETTING_DOCTYPE
 
 
 class TestShopifyConnection(unittest.TestCase):

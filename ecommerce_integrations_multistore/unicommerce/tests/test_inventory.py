@@ -6,10 +6,10 @@ from erpnext.stock.doctype.item.test_item import make_item
 from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
 from erpnext.stock.utils import get_stock_balance
 
-from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
-from ecommerce_integrations.unicommerce.constants import MODULE_NAME
-from ecommerce_integrations.unicommerce.inventory import update_inventory_on_unicommerce
-from ecommerce_integrations.unicommerce.tests.test_client import TestCaseApiClient
+from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.unicommerce.constants import MODULE_NAME
+from ecommerce_integrations_multistore.unicommerce.inventory import update_inventory_on_unicommerce
+from ecommerce_integrations_multistore.unicommerce.tests.test_client import TestCaseApiClient
 
 
 class TestUnicommerceProduct(TestCaseApiClient):
@@ -18,7 +18,7 @@ class TestUnicommerceProduct(TestCaseApiClient):
 		super().setUpClass()
 		cls.items = ["_TestInventoryItemA", "_TestInventoryItemB", "_TestInventoryItemC"]
 
-		with patch("ecommerce_integrations.shopify.product.upload_erpnext_item"):
+		with patch("ecommerce_integrations_multistore.shopify.product.upload_erpnext_item"):
 			for item in cls.items:
 				make_item(item)
 

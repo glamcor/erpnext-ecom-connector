@@ -9,7 +9,7 @@ Dispatches per-store jobs in parallel for isolation and rate limiting.
 import frappe
 from frappe import _
 
-from ecommerce_integrations.shopify.constants import STORE_DOCTYPE
+from ecommerce_integrations_multistore.shopify.constants import STORE_DOCTYPE
 
 
 def orchestrate_inventory_sync():
@@ -23,7 +23,7 @@ def orchestrate_inventory_sync():
 	for store_name in stores:
 		# Deduplicate prevents multiple jobs for same store running simultaneously
 		frappe.enqueue(
-			method="ecommerce_integrations.shopify.inventory.update_inventory_for_store",
+			method="ecommerce_integrations_multistore.shopify.inventory.update_inventory_for_store",
 			queue="short",
 			store_name=store_name,
 			deduplicate=True,
@@ -42,7 +42,7 @@ def orchestrate_order_sync():
 
 	for store_name in stores:
 		frappe.enqueue(
-			method="ecommerce_integrations.shopify.order.sync_old_orders_for_store",
+			method="ecommerce_integrations_multistore.shopify.order.sync_old_orders_for_store",
 			queue="long",
 			store_name=store_name,
 			deduplicate=True,
@@ -61,7 +61,7 @@ def orchestrate_product_sync():
 
 	for store_name in stores:
 		frappe.enqueue(
-			method="ecommerce_integrations.shopify.product.sync_products_for_store",
+			method="ecommerce_integrations_multistore.shopify.product.sync_products_for_store",
 			queue="long",
 			store_name=store_name,
 			deduplicate=True,

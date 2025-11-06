@@ -4,8 +4,8 @@ import frappe
 from frappe import _
 from frappe.utils import cstr, validate_phone_number
 
-from ecommerce_integrations.controllers.customer import EcommerceCustomer
-from ecommerce_integrations.shopify.constants import (
+from ecommerce_integrations_multistore.controllers.customer import EcommerceCustomer
+from ecommerce_integrations_multistore.shopify.constants import (
 	ADDRESS_ID_FIELD,
 	CUSTOMER_ID_FIELD,
 	MODULE_NAME,

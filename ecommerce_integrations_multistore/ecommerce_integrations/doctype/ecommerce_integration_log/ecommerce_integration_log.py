@@ -96,7 +96,7 @@ def _retry_job(job: str):
 	frappe.only_for("System Manager")
 
 	doc = frappe.get_doc("Ecommerce Integration Log", job)
-	if not doc.method.startswith("ecommerce_integrations.") or doc.status != "Error":
+	if not doc.method.startswith("ecommerce_integrations_multistore.") or doc.status != "Error":
 		return
 
 	doc.db_set("status", "Queued", update_modified=False)

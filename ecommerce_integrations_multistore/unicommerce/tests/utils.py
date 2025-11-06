@@ -6,8 +6,8 @@ from typing import ClassVar
 
 import frappe
 
-from ecommerce_integrations.unicommerce.constants import PRODUCT_CATEGORY_FIELD, SETTINGS_DOCTYPE
-from ecommerce_integrations.unicommerce.doctype.unicommerce_settings.unicommerce_settings import (
+from ecommerce_integrations_multistore.unicommerce.constants import PRODUCT_CATEGORY_FIELD, SETTINGS_DOCTYPE
+from ecommerce_integrations_multistore.unicommerce.doctype.unicommerce_settings.unicommerce_settings import (
 	setup_custom_fields,
 )
 

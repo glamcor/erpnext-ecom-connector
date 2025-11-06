@@ -35,7 +35,7 @@ frappe.ui.form.on("Shopify Store", {
 				__("Sync Stock to Shopify Now"),
 				function () {
 					frappe.call({
-						method: "ecommerce_integrations.shopify.inventory.update_inventory_for_store",
+						method: "ecommerce_integrations_multistore.shopify.inventory.update_inventory_for_store",
 						args: {
 							store_name: frm.doc.name,
 						},
@@ -56,7 +56,7 @@ frappe.ui.form.on("Shopify Store", {
 				__("Sync Old Orders Now"),
 				function () {
 					frappe.call({
-						method: "ecommerce_integrations.shopify.order.sync_old_orders_for_store",
+						method: "ecommerce_integrations_multistore.shopify.order.sync_old_orders_for_store",
 						args: {
 							store_name: frm.doc.name,
 						},

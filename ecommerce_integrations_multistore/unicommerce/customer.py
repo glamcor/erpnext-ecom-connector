@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils.nestedset import get_root_of
 
-from ecommerce_integrations.unicommerce.constants import (
+from ecommerce_integrations_multistore.unicommerce.constants import (
 	ADDRESS_JSON_FIELD,
 	CUSTOMER_CODE_FIELD,
 	SETTINGS_DOCTYPE,

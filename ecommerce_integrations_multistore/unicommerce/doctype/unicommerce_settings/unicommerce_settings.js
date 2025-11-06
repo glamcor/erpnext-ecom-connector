@@ -20,7 +20,7 @@ frappe.ui.form.on("Unicommerce Settings", {
 				action,
 				() => {
 					frappe.call({
-						method: "ecommerce_integrations.unicommerce.utils.force_sync",
+						method: "ecommerce_integrations_multistore.unicommerce.utils.force_sync",
 						args: {
 							document: action,
 						},
@@ -39,7 +39,7 @@ frappe.ui.form.on("Unicommerce Settings", {
 	onload: function (frm) {
 		// naming series options
 		frappe.call({
-			method: "ecommerce_integrations.utils.naming_series.get_series",
+			method: "ecommerce_integrations_multistore.utils.naming_series.get_series",
 			callback: function (r) {
 				$.each(r.message, (key, value) => {
 					set_field_options(key, value);

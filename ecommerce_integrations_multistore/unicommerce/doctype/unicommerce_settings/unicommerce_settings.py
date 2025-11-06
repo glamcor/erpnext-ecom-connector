@@ -8,12 +8,12 @@ from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
-from ecommerce_integrations.controllers.setting import (
+from ecommerce_integrations_multistore.controllers.setting import (
 	ERPNextWarehouse,
 	IntegrationWarehouse,
 	SettingController,
 )
-from ecommerce_integrations.unicommerce.constants import (
+from ecommerce_integrations_multistore.unicommerce.constants import (
 	ADDRESS_JSON_FIELD,
 	CHANNEL_ID_FIELD,
 	CUSTOMER_CODE_FIELD,
@@ -43,7 +43,7 @@ from ecommerce_integrations.unicommerce.constants import (
 	TRACKING_CODE_FIELD,
 	UNICOMMERCE_SHIPPING_ID,
 )
-from ecommerce_integrations.unicommerce.utils import create_unicommerce_log
+from ecommerce_integrations_multistore.unicommerce.utils import create_unicommerce_log
 
 
 class UnicommerceSettings(SettingController):

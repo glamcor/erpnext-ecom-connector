@@ -3,7 +3,7 @@ import json
 import frappe
 from frappe import _
 
-from ecommerce_integrations.unicommerce.constants import SETTINGS_DOCTYPE
+from ecommerce_integrations_multistore.unicommerce.constants import SETTINGS_DOCTYPE
 
 
 def validate(self, method=None):

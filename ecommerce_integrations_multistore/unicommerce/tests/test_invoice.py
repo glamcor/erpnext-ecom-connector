@@ -5,15 +5,15 @@ import frappe
 import responses
 from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
 
-from ecommerce_integrations.unicommerce.constants import (
+from ecommerce_integrations_multistore.unicommerce.constants import (
 	FACILITY_CODE_FIELD,
 	INVOICE_CODE_FIELD,
 	ORDER_CODE_FIELD,
 	SHIPPING_PACKAGE_CODE_FIELD,
 )
-from ecommerce_integrations.unicommerce.invoice import bulk_generate_invoices, create_sales_invoice
-from ecommerce_integrations.unicommerce.order import create_order, get_taxes
-from ecommerce_integrations.unicommerce.tests.test_client import TestCaseApiClient
+from ecommerce_integrations_multistore.unicommerce.invoice import bulk_generate_invoices, create_sales_invoice
+from ecommerce_integrations_multistore.unicommerce.order import create_order, get_taxes
+from ecommerce_integrations_multistore.unicommerce.tests.test_client import TestCaseApiClient
 
 
 class TestUnicommerceInvoice(TestCaseApiClient):
@@ -60,7 +60,7 @@ class TestUnicommerceInvoice(TestCaseApiClient):
 	def test_end_to_end_invoice_generation(self):
 		"""Full invoice generation test with mocked responses."""
 
-		from ecommerce_integrations.unicommerce import invoice
+		from ecommerce_integrations_multistore.unicommerce import invoice
 
 		si_data = self.load_fixture("invoice-SDU0026")["invoice"]
 

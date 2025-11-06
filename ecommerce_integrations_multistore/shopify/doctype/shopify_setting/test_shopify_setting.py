@@ -5,7 +5,7 @@ import unittest
 
 import frappe
 
-from ecommerce_integrations.shopify.constants import (
+from ecommerce_integrations_multistore.shopify.constants import (
 	ADDRESS_ID_FIELD,
 	CUSTOMER_ID_FIELD,
 	FULLFILLMENT_ID_FIELD,

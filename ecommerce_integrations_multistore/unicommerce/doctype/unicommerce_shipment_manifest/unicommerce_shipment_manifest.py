@@ -11,8 +11,8 @@ from frappe.model.mapper import get_mapped_doc
 from frappe.utils import cint
 from frappe.utils.file_manager import save_file
 
-from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
-from ecommerce_integrations.unicommerce.constants import (
+from ecommerce_integrations_multistore.unicommerce.api_client import UnicommerceAPIClient
+from ecommerce_integrations_multistore.unicommerce.constants import (
 	CHANNEL_ID_FIELD,
 	FACILITY_CODE_FIELD,
 	INVOICE_CODE_FIELD,
@@ -22,8 +22,8 @@ from ecommerce_integrations.unicommerce.constants import (
 	SHIPPING_PROVIDER_CODE,
 	TRACKING_CODE_FIELD,
 )
-from ecommerce_integrations.unicommerce.invoice import fetch_pdf_as_base64
-from ecommerce_integrations.unicommerce.utils import remove_non_alphanumeric_chars
+from ecommerce_integrations_multistore.unicommerce.invoice import fetch_pdf_as_base64
+from ecommerce_integrations_multistore.unicommerce.utils import remove_non_alphanumeric_chars
 
 # mapping of invoice field to manifest package fields
 FIELD_MAPPING = {

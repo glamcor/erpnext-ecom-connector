@@ -9,7 +9,7 @@ frappe.ui.form.on("Unicommerce Shipment Manifest", {
 				__("Open on Unicommerce"),
 				function () {
 					frappe.call({
-						method: "ecommerce_integrations.unicommerce.utils.get_unicommerce_document_url",
+						method: "ecommerce_integrations_multistore.unicommerce.utils.get_unicommerce_document_url",
 						args: {
 							code: frm.doc.unicommerce_manifest_code,
 							doctype: frm.doc.doctype,
@@ -43,7 +43,7 @@ frappe.ui.form.on("Unicommerce Shipment Manifest", {
 				return;
 			}
 			erpnext.utils.map_current_doc({
-				method: "ecommerce_integrations.unicommerce.doctype.unicommerce_shipment_manifest.unicommerce_shipment_manifest.get_shipping_package_list",
+				method: "ecommerce_integrations_multistore.unicommerce.doctype.unicommerce_shipment_manifest.unicommerce_shipment_manifest.get_shipping_package_list",
 				source_doctype: "Sales Invoice",
 				target: frm.doc,
 				setters: [
@@ -92,7 +92,7 @@ frappe.ui.form.on("Unicommerce Shipment Manifest", {
 
 		frappe
 			.xcall(
-				"ecommerce_integrations.unicommerce.doctype.unicommerce_shipment_manifest.unicommerce_shipment_manifest.search_packages",
+				"ecommerce_integrations_multistore.unicommerce.doctype.unicommerce_shipment_manifest.unicommerce_shipment_manifest.search_packages",
 				{
 					search_term: frm.doc.scan_barcode,
 					shipper: frm.doc.shipping_provider_code,

@@ -104,7 +104,7 @@ shopify.ProductImporter = class {
 			const {
 				message: { erpnextCount, shopifyCount, syncedCount },
 			} = await frappe.call({
-				method: "ecommerce_integrations.shopify.page.shopify_import_products.shopify_import_products.get_product_count",
+				method: "ecommerce_integrations_multistore.shopify.page.shopify_import_products.shopify_import_products.get_product_count",
 			});
 
 			this.wrapper.find("#count-products-shopify").text(shopifyCount);
@@ -164,7 +164,7 @@ shopify.ProductImporter = class {
 			const {
 				message: { products, nextUrl, prevUrl },
 			} = await frappe.call({
-				method: "ecommerce_integrations.shopify.page.shopify_import_products.shopify_import_products.get_shopify_products",
+				method: "ecommerce_integrations_multistore.shopify.page.shopify_import_products.shopify_import_products.get_shopify_products",
 				args: { from_ },
 			});
 			this.nextUrl = nextUrl;
@@ -258,7 +258,7 @@ shopify.ProductImporter = class {
 
 	async syncProduct(product) {
 		const { message: status } = await frappe.call({
-			method: "ecommerce_integrations.shopify.page.shopify_import_products.shopify_import_products.sync_product",
+			method: "ecommerce_integrations_multistore.shopify.page.shopify_import_products.shopify_import_products.sync_product",
 			args: { product },
 		});
 
@@ -269,7 +269,7 @@ shopify.ProductImporter = class {
 
 	async resyncProduct(product) {
 		const { message: status } = await frappe.call({
-			method: "ecommerce_integrations.shopify.page.shopify_import_products.shopify_import_products.resync_product",
+			method: "ecommerce_integrations_multistore.shopify.page.shopify_import_products.shopify_import_products.resync_product",
 			args: { product },
 		});
 
@@ -302,7 +302,7 @@ shopify.ProductImporter = class {
 			frappe.msgprint(__("Sync already in progress"));
 		} else {
 			frappe.call({
-				method: "ecommerce_integrations.shopify.page.shopify_import_products.shopify_import_products.import_all_products",
+				method: "ecommerce_integrations_multistore.shopify.page.shopify_import_products.shopify_import_products.import_all_products",
 			});
 		}
 

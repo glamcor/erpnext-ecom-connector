@@ -5,14 +5,14 @@ from frappe.utils import cint, create_batch, now
 from pyactiveresource.connection import ResourceNotFound
 from shopify.resources import InventoryLevel, Variant
 
-from ecommerce_integrations.controllers.inventory import (
+from ecommerce_integrations_multistore.controllers.inventory import (
 	get_inventory_levels,
 	update_inventory_sync_status,
 )
-from ecommerce_integrations.controllers.scheduling import need_to_run
-from ecommerce_integrations.shopify.connection import temp_shopify_session
-from ecommerce_integrations.shopify.constants import MODULE_NAME, SETTING_DOCTYPE, STORE_DOCTYPE
-from ecommerce_integrations.shopify.utils import create_shopify_log
+from ecommerce_integrations_multistore.controllers.scheduling import need_to_run
+from ecommerce_integrations_multistore.shopify.connection import temp_shopify_session
+from ecommerce_integrations_multistore.shopify.constants import MODULE_NAME, SETTING_DOCTYPE, STORE_DOCTYPE
+from ecommerce_integrations_multistore.shopify.utils import create_shopify_log
 
 
 def update_inventory_on_shopify() -> None:
@@ -47,7 +47,7 @@ def update_inventory_for_store(store_name: str) -> None:
 	Args:
 	    store_name: Shopify Store name
 	"""
-	from ecommerce_integrations.shopify.rate_limiter import get_rate_limiter
+	from ecommerce_integrations_multistore.shopify.rate_limiter import get_rate_limiter
 	
 	store = frappe.get_doc(STORE_DOCTYPE, store_name)
 

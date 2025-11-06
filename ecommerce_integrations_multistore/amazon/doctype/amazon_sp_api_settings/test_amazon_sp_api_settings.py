@@ -14,11 +14,11 @@ from frappe.exceptions import ValidationError
 from requests import request
 from requests.exceptions import HTTPError
 
-from ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_repository import (
+from ecommerce_integrations_multistore.amazon.doctype.amazon_sp_api_settings.amazon_repository import (
 	AmazonRepository,
 	validate_amazon_sp_api_credentials,
 )
-from ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_sp_api import (
+from ecommerce_integrations_multistore.amazon.doctype.amazon_sp_api_settings.amazon_sp_api import (
 	SPAPI,
 	CatalogItems,
 	Finances,
@@ -26,7 +26,7 @@ from ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_sp_api 
 	SPAPIError,
 	Util,
 )
-from ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_settings import (
+from ecommerce_integrations_multistore.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_settings import (
 	setup_custom_fields,
 )
 

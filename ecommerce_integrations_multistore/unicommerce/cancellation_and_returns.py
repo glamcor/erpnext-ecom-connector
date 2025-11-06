@@ -7,8 +7,8 @@ from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_retu
 from erpnext.controllers.accounts_controller import update_child_qty_rate
 from frappe.utils import now_datetime
 
-from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
-from ecommerce_integrations.unicommerce.constants import (
+from ecommerce_integrations_multistore.unicommerce.api_client import UnicommerceAPIClient
+from ecommerce_integrations_multistore.unicommerce.constants import (
 	CHANNEL_ID_FIELD,
 	FACILITY_CODE_FIELD,
 	ORDER_CODE_FIELD,

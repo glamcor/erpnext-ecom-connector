@@ -7,13 +7,13 @@ from frappe.utils import cint, getdate
 from frappe.utils.csvutils import UnicodeWriter
 from frappe.utils.file_manager import save_file
 
-from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
-from ecommerce_integrations.unicommerce.constants import (
+from ecommerce_integrations_multistore.unicommerce.api_client import UnicommerceAPIClient
+from ecommerce_integrations_multistore.unicommerce.constants import (
 	GRN_STOCK_ENTRY_TYPE,
 	MODULE_NAME,
 	SETTINGS_DOCTYPE,
 )
-from ecommerce_integrations.unicommerce.utils import remove_non_alphanumeric_chars
+from ecommerce_integrations_multistore.unicommerce.utils import remove_non_alphanumeric_chars
 
 CSV_HEADER_LINE = (
 	"Vendor Code*,Vendor Invoice Number*,Purchase Order Code,Vendor Invoice Date*,Sku"

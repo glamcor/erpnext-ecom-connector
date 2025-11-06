@@ -3,14 +3,14 @@ from collections import defaultdict
 import frappe
 from frappe.utils import cint, now
 
-from ecommerce_integrations.controllers.inventory import (
+from ecommerce_integrations_multistore.controllers.inventory import (
 	get_inventory_levels,
 	get_inventory_levels_of_group_warehouse,
 	update_inventory_sync_status,
 )
-from ecommerce_integrations.controllers.scheduling import need_to_run
-from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
-from ecommerce_integrations.unicommerce.constants import MODULE_NAME, SETTINGS_DOCTYPE
+from ecommerce_integrations_multistore.controllers.scheduling import need_to_run
+from ecommerce_integrations_multistore.unicommerce.api_client import UnicommerceAPIClient
+from ecommerce_integrations_multistore.unicommerce.constants import MODULE_NAME, SETTINGS_DOCTYPE
 
 # Note: Undocumented but currently handles ~1000 inventory changes in one request.
 # Remaining to be done in next interval.

@@ -7,8 +7,8 @@ from frappe.utils import cint, cstr, flt, get_datetime, getdate, nowdate
 from shopify.collection import PaginatedIterator
 from shopify.resources import Order
 
-from ecommerce_integrations.shopify.connection import temp_shopify_session
-from ecommerce_integrations.shopify.constants import (
+from ecommerce_integrations_multistore.shopify.connection import temp_shopify_session
+from ecommerce_integrations_multistore.shopify.constants import (
 	CUSTOMER_ID_FIELD,
 	EVENT_MAPPER,
 	ORDER_ID_FIELD,
@@ -19,11 +19,11 @@ from ecommerce_integrations.shopify.constants import (
 	STORE_DOCTYPE,
 	STORE_LINK_FIELD,
 )
-from ecommerce_integrations.shopify.customer import ShopifyCustomer
-from ecommerce_integrations.shopify.product import create_items_if_not_exist, get_item_code
-from ecommerce_integrations.shopify.utils import create_shopify_log
-from ecommerce_integrations.utils.price_list import get_dummy_price_list
-from ecommerce_integrations.utils.taxation import get_dummy_tax_category
+from ecommerce_integrations_multistore.shopify.customer import ShopifyCustomer
+from ecommerce_integrations_multistore.shopify.product import create_items_if_not_exist, get_item_code
+from ecommerce_integrations_multistore.shopify.utils import create_shopify_log
+from ecommerce_integrations_multistore.utils.price_list import get_dummy_price_list
+from ecommerce_integrations_multistore.utils.taxation import get_dummy_tax_category
 
 DEFAULT_TAX_FIELDS = {
 	"sales_tax": "default_sales_tax_account",
@@ -82,8 +82,8 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 
 def create_order(order, setting, company=None):
 	# local import to avoid circular dependencies
-	from ecommerce_integrations.shopify.fulfillment import create_delivery_note
-	from ecommerce_integrations.shopify.invoice import create_sales_invoice
+	from ecommerce_integrations_multistore.shopify.fulfillment import create_delivery_note
+	from ecommerce_integrations_multistore.shopify.invoice import create_sales_invoice
 
 	so = create_sales_order(order, setting, company)
 	if so:

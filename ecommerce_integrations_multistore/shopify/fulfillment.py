@@ -4,7 +4,7 @@ import frappe
 from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
 from frappe.utils import cint, cstr, getdate
 
-from ecommerce_integrations.shopify.constants import (
+from ecommerce_integrations_multistore.shopify.constants import (
 	FULLFILLMENT_ID_FIELD,
 	ORDER_ID_FIELD,
 	ORDER_NUMBER_FIELD,
@@ -12,8 +12,8 @@ from ecommerce_integrations.shopify.constants import (
 	STORE_DOCTYPE,
 	STORE_LINK_FIELD,
 )
-from ecommerce_integrations.shopify.order import get_sales_order
-from ecommerce_integrations.shopify.utils import create_shopify_log
+from ecommerce_integrations_multistore.shopify.order import get_sales_order
+from ecommerce_integrations_multistore.shopify.utils import create_shopify_log
 
 
 def prepare_delivery_note(payload, request_id=None, store_name=None):
@@ -105,7 +105,7 @@ def get_fulfillment_items(dn_items, fulfillment_items, location_id=None, setting
 	    store_name: Shopify Store name for multi-store support
 	"""
 	# local import to avoid circular imports
-	from ecommerce_integrations.shopify.product import get_item_code
+	from ecommerce_integrations_multistore.shopify.product import get_item_code
 
 	fulfillment_items = deepcopy(fulfillment_items)
 

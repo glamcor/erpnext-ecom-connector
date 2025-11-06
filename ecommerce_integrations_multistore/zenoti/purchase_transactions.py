@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_to_date
 
-from ecommerce_integrations.zenoti.utils import (
+from ecommerce_integrations_multistore.zenoti.utils import (
 	add_taxes,
 	api_url,
 	check_for_item,

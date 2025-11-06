@@ -1,12 +1,12 @@
 // Copyright (c) 2021, Frappe and contributors
 // For license information, please see LICENSE
 
-frappe.provide("ecommerce_integrations.shopify.shopify_setting");
+frappe.provide("ecommerce_integrations_multistore.shopify.shopify_setting");
 
 frappe.ui.form.on("Shopify Setting", {
 	onload: function (frm) {
 		frappe.call({
-			method: "ecommerce_integrations.utils.naming_series.get_series",
+			method: "ecommerce_integrations_multistore.utils.naming_series.get_series",
 			callback: function (r) {
 				$.each(r.message, (key, value) => {
 					set_field_options(key, value);

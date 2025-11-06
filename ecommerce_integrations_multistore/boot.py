@@ -1,4 +1,4 @@
-from ecommerce_integrations.shopify.constants import OLD_SETTINGS_DOCTYPE
+from ecommerce_integrations_multistore.shopify.constants import OLD_SETTINGS_DOCTYPE
 
 
 def boot_session(bootinfo):

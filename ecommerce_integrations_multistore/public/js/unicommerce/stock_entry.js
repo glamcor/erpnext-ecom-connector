@@ -5,7 +5,7 @@ frappe.ui.form.on("Stock Entry", {
 				__("Open GRNs"),
 				function () {
 					frappe.call({
-						method: "ecommerce_integrations.unicommerce.utils.get_unicommerce_document_url",
+						method: "ecommerce_integrations_multistore.unicommerce.utils.get_unicommerce_document_url",
 						args: {
 							code: "",
 							doctype: frm.doc.doctype,

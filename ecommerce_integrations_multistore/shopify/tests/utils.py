@@ -9,7 +9,7 @@ from erpnext import get_default_cost_center
 from pyactiveresource.activeresource import ActiveResource
 from pyactiveresource.testing import http_fake
 
-from ecommerce_integrations.shopify.constants import API_VERSION, SETTING_DOCTYPE
+from ecommerce_integrations_multistore.shopify.constants import API_VERSION, SETTING_DOCTYPE
 
 # Following code is adapted from Shopify python api under MIT license with minor changes.
 
@@ -39,7 +39,7 @@ class TestCase(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		with patch(
-			"ecommerce_integrations.shopify.doctype.shopify_setting.shopify_setting.ShopifySetting._handle_webhooks"
+			"ecommerce_integrations_multistore.shopify.doctype.shopify_setting.shopify_setting.ShopifySetting._handle_webhooks"
 		):
 			setting = frappe.get_doc(SETTING_DOCTYPE)
 

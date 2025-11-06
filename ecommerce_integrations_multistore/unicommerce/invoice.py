@@ -10,9 +10,9 @@ from frappe import _
 from frappe.utils import cint, flt, nowdate
 from frappe.utils.file_manager import save_file
 
-from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
-from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
-from ecommerce_integrations.unicommerce.constants import (
+from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.unicommerce.api_client import UnicommerceAPIClient
+from ecommerce_integrations_multistore.unicommerce.constants import (
 	CHANNEL_ID_FIELD,
 	FACILITY_CODE_FIELD,
 	INVOICE_CODE_FIELD,
@@ -27,8 +27,8 @@ from ecommerce_integrations.unicommerce.constants import (
 	SHIPPING_PROVIDER_CODE,
 	TRACKING_CODE_FIELD,
 )
-from ecommerce_integrations.unicommerce.order import get_taxes
-from ecommerce_integrations.unicommerce.utils import (
+from ecommerce_integrations_multistore.unicommerce.order import get_taxes
+from ecommerce_integrations_multistore.unicommerce.utils import (
 	create_unicommerce_log,
 	get_unicommerce_date,
 	remove_non_alphanumeric_chars,
@@ -111,12 +111,12 @@ def generate_unicommerce_invoices(
 		# send to background job
 
 		log = create_unicommerce_log(
-			method="ecommerce_integrations.unicommerce.invoice.bulk_generate_invoices",
+			method="ecommerce_integrations_multistore.unicommerce.invoice.bulk_generate_invoices",
 			request_data={"sales_orders": sales_orders, "warehouse_allocation": warehouse_allocation},
 		)
 
 		frappe.enqueue(
-			method="ecommerce_integrations.unicommerce.invoice.bulk_generate_invoices",
+			method="ecommerce_integrations_multistore.unicommerce.invoice.bulk_generate_invoices",
 			queue="long",
 			timeout=max(1500, len(sales_orders) * 30),
 			sales_orders=sales_orders,
@@ -554,7 +554,7 @@ def update_cancellation_status(so_data, so) -> bool:
 		return True
 
 	# partial cancels
-	from ecommerce_integrations.unicommerce.cancellation_and_returns import update_erpnext_order_items
+	from ecommerce_integrations_multistore.unicommerce.cancellation_and_returns import update_erpnext_order_items
 
 	update_erpnext_order_items(so_data, so)
 

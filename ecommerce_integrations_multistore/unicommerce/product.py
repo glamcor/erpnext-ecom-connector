@@ -6,9 +6,9 @@ from frappe.utils import get_url, now, to_markdown
 from frappe.utils.nestedset import get_root_of
 from stdnum.ean import is_valid as validate_barcode
 
-from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_item import ecommerce_item
-from ecommerce_integrations.unicommerce.api_client import JsonDict, UnicommerceAPIClient
-from ecommerce_integrations.unicommerce.constants import (
+from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.unicommerce.api_client import JsonDict, UnicommerceAPIClient
+from ecommerce_integrations_multistore.unicommerce.constants import (
 	DEFAULT_WEIGHT_UOM,
 	ITEM_BATCH_GROUP_FIELD,
 	ITEM_HEIGHT_FIELD,
@@ -20,7 +20,7 @@ from ecommerce_integrations.unicommerce.constants import (
 	SETTINGS_DOCTYPE,
 	UNICOMMERCE_SKU_PATTERN,
 )
-from ecommerce_integrations.unicommerce.utils import create_unicommerce_log
+from ecommerce_integrations_multistore.unicommerce.utils import create_unicommerce_log
 
 ItemCode = NewType("ItemCode", str)
 

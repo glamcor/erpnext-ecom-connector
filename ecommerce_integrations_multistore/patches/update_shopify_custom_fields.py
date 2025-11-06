@@ -1,7 +1,7 @@
 import frappe
 
-from ecommerce_integrations.shopify.constants import SETTING_DOCTYPE
-from ecommerce_integrations.shopify.doctype.shopify_setting.shopify_setting import (
+from ecommerce_integrations_multistore.shopify.constants import SETTING_DOCTYPE
+from ecommerce_integrations_multistore.shopify.doctype.shopify_setting.shopify_setting import (
 	setup_custom_fields,
 )
 

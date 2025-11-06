@@ -4,7 +4,7 @@ import os
 import frappe
 import shopify
 
-from ecommerce_integrations.shopify.product import ShopifyProduct
+from ecommerce_integrations_multistore.shopify.product import ShopifyProduct
 
 from ...tests.utils import TestCase
 from .shopify_import_products import queue_sync_all_products

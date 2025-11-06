@@ -4,10 +4,10 @@
 import frappe
 from frappe import _, _dict
 
-from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_integration_log.ecommerce_integration_log import (
+from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_integration_log.ecommerce_integration_log import (
 	create_log,
 )
-from ecommerce_integrations.shopify.constants import (
+from ecommerce_integrations_multistore.shopify.constants import (
 	MODULE_NAME,
 	OLD_SETTINGS_DOCTYPE,
 	SETTING_DOCTYPE,
@@ -31,7 +31,7 @@ def migrate_from_old_connector(payload=None, request_id=None):
 	else:
 		log = create_shopify_log(
 			status="Queued",
-			method="ecommerce_integrations.shopify.utils.migrate_from_old_connector",
+			method="ecommerce_integrations_multistore.shopify.utils.migrate_from_old_connector",
 		)
 
 	frappe.enqueue(

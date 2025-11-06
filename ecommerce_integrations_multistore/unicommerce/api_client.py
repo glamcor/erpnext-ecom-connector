@@ -7,8 +7,8 @@ from frappe import _
 from frappe.utils import cint, cstr, get_datetime
 from pytz import timezone
 
-from ecommerce_integrations.unicommerce.constants import SETTINGS_DOCTYPE
-from ecommerce_integrations.unicommerce.utils import create_unicommerce_log
+from ecommerce_integrations_multistore.unicommerce.constants import SETTINGS_DOCTYPE
+from ecommerce_integrations_multistore.unicommerce.utils import create_unicommerce_log
 
 JsonDict = dict[str, Any]
 

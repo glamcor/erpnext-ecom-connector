@@ -1,13 +1,13 @@
 import frappe
 
-from ecommerce_integrations.unicommerce.api_client import UnicommerceAPIClient
-from ecommerce_integrations.unicommerce.cancellation_and_returns import (
+from ecommerce_integrations_multistore.unicommerce.api_client import UnicommerceAPIClient
+from ecommerce_integrations_multistore.unicommerce.cancellation_and_returns import (
 	check_and_update_customer_initiated_returns,
 	create_rto_return,
 	fully_cancel_orders,
 	update_partially_cancelled_orders,
 )
-from ecommerce_integrations.unicommerce.constants import (
+from ecommerce_integrations_multistore.unicommerce.constants import (
 	ORDER_CODE_FIELD,
 	ORDER_STATUS_FIELD,
 	SETTINGS_DOCTYPE,

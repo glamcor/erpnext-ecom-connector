@@ -52,7 +52,7 @@ frappe.ui.form.on("Zenoti Settings", {
 		if (cint(frm.doc.enable_zenoti)) {
 			frm.add_custom_button(__("Update Centers"), function () {
 				frappe.call({
-					method: "ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.update_centers",
+					method: "ecommerce_integrations_multistore.zenoti.doctype.zenoti_settings.zenoti_settings.update_centers",
 					freeze: true,
 					freeze_message: __("Updating Centers..."),
 					callback: function (r) {

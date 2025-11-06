@@ -14,7 +14,7 @@ frappe.listview_settings["Ecommerce Integration Log"] = {
 	onload: function (listview) {
 		listview.page.add_action_item(__("Retry"), () => {
 			listview.call_for_selected_items(
-				"ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_integration_log.ecommerce_integration_log.bulk_retry"
+				"ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_integration_log.ecommerce_integration_log.bulk_retry"
 			);
 		});
 	},

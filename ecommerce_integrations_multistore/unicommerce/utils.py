@@ -2,15 +2,15 @@ import datetime
 
 import frappe
 
-from ecommerce_integrations.ecommerce_integrations.doctype.ecommerce_integration_log.ecommerce_integration_log import (
+from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_integration_log.ecommerce_integration_log import (
 	create_log,
 )
-from ecommerce_integrations.unicommerce.constants import MODULE_NAME
+from ecommerce_integrations_multistore.unicommerce.constants import MODULE_NAME
 
 SYNC_METHODS = {
-	"Items": "ecommerce_integrations.unicommerce.product.upload_new_items",
-	"Orders": "ecommerce_integrations.unicommerce.order.sync_new_orders",
-	"Inventory": "ecommerce_integrations.unicommerce.inventory.update_inventory_on_unicommerce",
+	"Items": "ecommerce_integrations_multistore.unicommerce.product.upload_new_items",
+	"Orders": "ecommerce_integrations_multistore.unicommerce.order.sync_new_orders",
+	"Inventory": "ecommerce_integrations_multistore.unicommerce.inventory.update_inventory_on_unicommerce",
 }
 
 DOCUMENT_URL_FORMAT = {

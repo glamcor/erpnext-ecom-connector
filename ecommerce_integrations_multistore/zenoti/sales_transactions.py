@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, add_to_date, cint, flt, get_date_str, today
 
-from ecommerce_integrations.zenoti.utils import (
+from ecommerce_integrations_multistore.zenoti.utils import (
 	add_items,
 	add_payments,
 	add_taxes,

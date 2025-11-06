@@ -7,7 +7,7 @@ frappe.ui.form.on("Zenoti Center", {
 			__("Employees"),
 			function () {
 				frappe.call({
-					method: "ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync",
+					method: "ecommerce_integrations_multistore.zenoti.doctype.zenoti_center.zenoti_center.sync",
 					args: {
 						center: frm.doc.name,
 						record_type: "Employees",
@@ -27,7 +27,7 @@ frappe.ui.form.on("Zenoti Center", {
 			__("Customers"),
 			function () {
 				frappe.call({
-					method: "ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync",
+					method: "ecommerce_integrations_multistore.zenoti.doctype.zenoti_center.zenoti_center.sync",
 					args: {
 						center: frm.doc.name,
 						record_type: "Customers",
@@ -47,7 +47,7 @@ frappe.ui.form.on("Zenoti Center", {
 			__("Items"),
 			function () {
 				frappe.call({
-					method: "ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync",
+					method: "ecommerce_integrations_multistore.zenoti.doctype.zenoti_center.zenoti_center.sync",
 					args: {
 						center: frm.doc.name,
 						record_type: "Items",
@@ -67,7 +67,7 @@ frappe.ui.form.on("Zenoti Center", {
 			__("Categories"),
 			function () {
 				frappe.call({
-					method: "ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync",
+					method: "ecommerce_integrations_multistore.zenoti.doctype.zenoti_center.zenoti_center.sync",
 					args: {
 						center: frm.doc.name,
 						record_type: "Categories",
@@ -105,7 +105,7 @@ frappe.ui.form.on("Zenoti Center", {
 					primary_action: function () {
 						let data = d.get_values();
 						frappe.call({
-							method: "ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync",
+							method: "ecommerce_integrations_multistore.zenoti.doctype.zenoti_center.zenoti_center.sync",
 							args: {
 								center: frm.doc.name,
 								record_type: "Sales Invoice",
@@ -144,7 +144,7 @@ frappe.ui.form.on("Zenoti Center", {
 					primary_action: function () {
 						let data = d.get_values();
 						frappe.call({
-							method: "ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync",
+							method: "ecommerce_integrations_multistore.zenoti.doctype.zenoti_center.zenoti_center.sync",
 							args: {
 								center: frm.doc.name,
 								record_type: "Stock Reconciliation",

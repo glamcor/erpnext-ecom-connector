@@ -3,7 +3,7 @@ from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import get_
 from frappe import _
 from frappe.utils import flt, now
 
-from ecommerce_integrations.zenoti.utils import api_url, check_for_item, make_api_call
+from ecommerce_integrations_multistore.zenoti.utils import api_url, check_for_item, make_api_call
 
 
 def process_stock_reconciliation(center, error_logs, date=None):

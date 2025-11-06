@@ -6,12 +6,12 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_to_date, date_diff, get_datetime, today
 
-from ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings import sync_invoices
-from ecommerce_integrations.zenoti.sales_transactions import (
+from ecommerce_integrations_multistore.zenoti.doctype.zenoti_settings.zenoti_settings import sync_invoices
+from ecommerce_integrations_multistore.zenoti.sales_transactions import (
 	create_customer,
 	prepare_customer_details,
 )
-from ecommerce_integrations.zenoti.utils import api_url, create_item, make_api_call
+from ecommerce_integrations_multistore.zenoti.utils import api_url, create_item, make_api_call
 
 emp_gender_map = {
 	-1: "NotSpecified",
@@ -147,7 +147,7 @@ def sync(center, record_type, start_date=None, end_date=None):
 		if date_diff(end_date, start_date) > 7:
 			frappe.throw(_("Difference between From Date and To Date cannot be more than 7."))
 		frappe.enqueue(
-			"ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_invoices",
+			"ecommerce_integrations_multistore.zenoti.doctype.zenoti_settings.zenoti_settings.sync_invoices",
 			center_id=center,
 			start_date=start_date,
 			end_date=end_date,
@@ -155,31 +155,31 @@ def sync(center, record_type, start_date=None, end_date=None):
 		)
 	elif record_type == "Employees":
 		frappe.enqueue(
-			"ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync_employees_",
+			"ecommerce_integrations_multistore.zenoti.doctype.zenoti_center.zenoti_center.sync_employees_",
 			center_id=center,
 			timeout=10000,
 		)
 	elif record_type == "Customers":
 		frappe.enqueue(
-			"ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync_customers_",
+			"ecommerce_integrations_multistore.zenoti.doctype.zenoti_center.zenoti_center.sync_customers_",
 			center_id=center,
 			timeout=10000,
 		)
 	elif record_type == "Items":
 		frappe.enqueue(
-			"ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync_items_",
+			"ecommerce_integrations_multistore.zenoti.doctype.zenoti_center.zenoti_center.sync_items_",
 			center_id=center,
 			timeout=10000,
 		)
 	elif record_type == "Categories":
 		frappe.enqueue(
-			"ecommerce_integrations.zenoti.doctype.zenoti_center.zenoti_center.sync_category_",
+			"ecommerce_integrations_multistore.zenoti.doctype.zenoti_center.zenoti_center.sync_category_",
 			center_id=center,
 			timeout=10000,
 		)
 	elif record_type == "Stock Reconciliation":
 		frappe.enqueue(
-			"ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_stocks",
+			"ecommerce_integrations_multistore.zenoti.doctype.zenoti_settings.zenoti_settings.sync_stocks",
 			center=center,
 			date=start_date,
 			timeout=10000,

@@ -6,7 +6,7 @@ frappe.ui.form.on("Sales Order", {
 				__("Open Unicommerce Order"),
 				function () {
 					frappe.call({
-						method: "ecommerce_integrations.unicommerce.utils.get_unicommerce_document_url",
+						method: "ecommerce_integrations_multistore.unicommerce.utils.get_unicommerce_document_url",
 						args: {
 							code: frm.doc.unicommerce_order_code,
 							doctype: frm.doc.doctype,
@@ -46,7 +46,7 @@ frappe.ui.form.on("Sales Order", {
 				__("Generate Invoice"),
 				function () {
 					frappe.call({
-						method: "ecommerce_integrations.unicommerce.invoice.generate_unicommerce_invoices",
+						method: "ecommerce_integrations_multistore.unicommerce.invoice.generate_unicommerce_invoices",
 						args: {
 							sales_orders: [so_code],
 							warehouse_allocation: warehouse_allocation,

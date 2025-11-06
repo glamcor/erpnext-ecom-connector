@@ -8,13 +8,13 @@ from frappe.utils import get_datetime
 from shopify.collection import PaginatedIterator
 from shopify.resources import Location
 
-from ecommerce_integrations.controllers.setting import (
+from ecommerce_integrations_multistore.controllers.setting import (
 	ERPNextWarehouse,
 	IntegrationWarehouse,
 	SettingController,
 )
-from ecommerce_integrations.shopify import connection
-from ecommerce_integrations.shopify.constants import (
+from ecommerce_integrations_multistore.shopify import connection
+from ecommerce_integrations_multistore.shopify.constants import (
 	ADDRESS_ID_FIELD,
 	CUSTOMER_ID_FIELD,
 	FULLFILLMENT_ID_FIELD,
@@ -25,7 +25,7 @@ from ecommerce_integrations.shopify.constants import (
 	ORDER_STATUS_FIELD,
 	SUPPLIER_ID_FIELD,
 )
-from ecommerce_integrations.shopify.utils import (
+from ecommerce_integrations_multistore.shopify.utils import (
 	ensure_old_connector_is_disabled,
 	migrate_from_old_connector,
 )
