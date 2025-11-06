@@ -1,0 +1,48 @@
+{
+ "actions": [],
+ "creation": "2025-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "store",
+  "shopify_customer_id",
+  "last_synced_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "store",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Shopify Store",
+   "options": "Shopify Store",
+   "reqd": 1
+  },
+  {
+   "fieldname": "shopify_customer_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Shopify Customer ID",
+   "reqd": 1
+  },
+  {
+   "fieldname": "last_synced_on",
+   "fieldtype": "Datetime",
+   "label": "Last Synced On"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Shopify",
+ "name": "Shopify Customer Store Link",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
+

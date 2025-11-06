@@ -136,10 +136,18 @@ doc_events = {
 # ---------------
 
 scheduler_events = {
-	"all": ["ecommerce_integrations.shopify.inventory.update_inventory_on_shopify"],
+	"all": [
+		# Multi-store orchestrator dispatches per-store jobs in parallel
+		"ecommerce_integrations.shopify.orchestrator.orchestrate_inventory_sync",
+		# Legacy: backward compatible singleton inventory sync
+		"ecommerce_integrations.shopify.inventory.update_inventory_on_shopify",
+	],
 	"daily": [],
 	"daily_long": ["ecommerce_integrations.zenoti.doctype.zenoti_settings.zenoti_settings.sync_stocks"],
 	"hourly": [
+		# Multi-store orchestrator for order sync
+		"ecommerce_integrations.shopify.orchestrator.orchestrate_order_sync",
+		# Legacy: backward compatible singleton order sync
 		"ecommerce_integrations.shopify.order.sync_old_orders",
 		"ecommerce_integrations.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_settings.schedule_get_order_details",
 	],

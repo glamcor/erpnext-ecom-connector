@@ -6,31 +6,61 @@ from ecommerce_integrations.shopify.constants import (
 	ORDER_ID_FIELD,
 	ORDER_NUMBER_FIELD,
 	SETTING_DOCTYPE,
+	STORE_DOCTYPE,
+	STORE_LINK_FIELD,
 )
 from ecommerce_integrations.shopify.utils import create_shopify_log
 
 
-def prepare_sales_invoice(payload, request_id=None):
+def prepare_sales_invoice(payload, request_id=None, store_name=None):
+	"""Prepare sales invoice from Shopify webhook.
+	
+	Args:
+	    payload: Shopify order data
+	    request_id: Integration log ID
+	    store_name: Shopify Store name (multi-store support)
+	"""
 	from ecommerce_integrations.shopify.order import get_sales_order
 
 	order = payload
 
 	frappe.set_user("Administrator")
-	setting = frappe.get_doc(SETTING_DOCTYPE)
 	frappe.flags.request_id = request_id
 
 	try:
 		sales_order = get_sales_order(cstr(order["id"]))
 		if sales_order:
-			create_sales_invoice(order, setting, sales_order)
-			create_shopify_log(status="Success")
+			# Get store from Sales Order or use provided store_name
+			store_name = store_name or sales_order.get(STORE_LINK_FIELD)
+			
+			# Get store-specific settings
+			if store_name:
+				setting = frappe.get_doc(STORE_DOCTYPE, store_name)
+			else:
+				# Backward compatibility
+				setting = frappe.get_doc(SETTING_DOCTYPE)
+			
+			create_sales_invoice(order, setting, sales_order, store_name=store_name)
+			create_shopify_log(status="Success", store_name=store_name)
 		else:
-			create_shopify_log(status="Invalid", message="Sales Order not found for syncing sales invoice.")
+			create_shopify_log(
+				status="Invalid",
+				message="Sales Order not found for syncing sales invoice.",
+				store_name=store_name
+			)
 	except Exception as e:
-		create_shopify_log(status="Error", exception=e, rollback=True)
+		create_shopify_log(status="Error", exception=e, rollback=True, store_name=store_name)
 
 
-def create_sales_invoice(shopify_order, setting, so):
+def create_sales_invoice(shopify_order, setting, so, store_name=None):
+	"""Create Sales Invoice from Shopify order.
+	
+	Args:
+	    shopify_order: Shopify order data
+	    setting: Store or Setting doc
+	    so: Sales Order doc
+	    store_name: Shopify Store name for multi-store support
+	"""
 	if (
 		not frappe.db.get_value("Sales Invoice", {ORDER_ID_FIELD: shopify_order.get("id")}, "name")
 		and so.docstatus == 1
@@ -42,6 +72,11 @@ def create_sales_invoice(shopify_order, setting, so):
 		sales_invoice = make_sales_invoice(so.name, ignore_permissions=True)
 		sales_invoice.set(ORDER_ID_FIELD, str(shopify_order.get("id")))
 		sales_invoice.set(ORDER_NUMBER_FIELD, shopify_order.get("name"))
+		
+		# Set store reference for multi-store
+		if store_name:
+			sales_invoice.set(STORE_LINK_FIELD, store_name)
+		
 		sales_invoice.set_posting_time = 1
 		sales_invoice.posting_date = posting_date
 		sales_invoice.due_date = posting_date

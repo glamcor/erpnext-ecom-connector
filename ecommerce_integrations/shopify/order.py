@@ -16,6 +16,8 @@ from ecommerce_integrations.shopify.constants import (
 	ORDER_NUMBER_FIELD,
 	ORDER_STATUS_FIELD,
 	SETTING_DOCTYPE,
+	STORE_DOCTYPE,
+	STORE_LINK_FIELD,
 )
 from ecommerce_integrations.shopify.customer import ShopifyCustomer
 from ecommerce_integrations.shopify.product import create_items_if_not_exist, get_item_code
@@ -29,34 +31,53 @@ DEFAULT_TAX_FIELDS = {
 }
 
 
-def sync_sales_order(payload, request_id=None):
+def sync_sales_order(payload, request_id=None, store_name=None):
+	"""Sync sales order from Shopify webhook to ERPNext.
+	
+	Args:
+	    payload: Shopify order data
+	    request_id: Integration log ID
+	    store_name: Shopify Store name (multi-store support)
+	"""
 	order = payload
 	frappe.set_user("Administrator")
 	frappe.flags.request_id = request_id
 
 	if frappe.db.get_value("Sales Order", filters={ORDER_ID_FIELD: cstr(order["id"])}):
-		create_shopify_log(status="Invalid", message="Sales order already exists, not synced")
+		create_shopify_log(
+			status="Invalid", 
+			message="Sales order already exists, not synced",
+			store_name=store_name
+		)
 		return
 	try:
+		# Get store-specific settings
+		if store_name:
+			store = frappe.get_doc(STORE_DOCTYPE, store_name)
+		else:
+			# Backward compatibility: fall back to singleton
+			store = frappe.get_doc(SETTING_DOCTYPE)
+		
+		# Sync customer with store context
 		shopify_customer = order.get("customer") if order.get("customer") is not None else {}
 		shopify_customer["billing_address"] = order.get("billing_address", "")
 		shopify_customer["shipping_address"] = order.get("shipping_address", "")
 		customer_id = shopify_customer.get("id")
 		if customer_id:
-			customer = ShopifyCustomer(customer_id=customer_id)
+			customer = ShopifyCustomer(customer_id=customer_id, store_name=store_name)
 			if not customer.is_synced():
 				customer.sync_customer(customer=shopify_customer)
 			else:
 				customer.update_existing_addresses(shopify_customer)
 
-		create_items_if_not_exist(order)
+		# Sync items with store context
+		create_items_if_not_exist(order, store_name=store_name)
 
-		setting = frappe.get_doc(SETTING_DOCTYPE)
-		create_order(order, setting)
+		create_order(order, store)
 	except Exception as e:
-		create_shopify_log(status="Error", exception=e, rollback=True)
+		create_shopify_log(status="Error", exception=e, rollback=True, store_name=store_name)
 	else:
-		create_shopify_log(status="Success")
+		create_shopify_log(status="Success", store_name=store_name)
 
 
 def create_order(order, setting, company=None):
@@ -74,10 +95,36 @@ def create_order(order, setting, company=None):
 
 
 def create_sales_order(shopify_order, setting, company=None):
+	"""Create Sales Order from Shopify order data.
+	
+	Args:
+	    shopify_order: Shopify order data
+	    setting: Store or Setting doc (backward compatible)
+	    company: Optional company override
+	"""
 	customer = setting.default_customer
+	store_name = setting.name if setting.doctype == STORE_DOCTYPE else None
+	
+	# Multi-store customer lookup
 	if shopify_order.get("customer", {}):
 		if customer_id := shopify_order.get("customer", {}).get("id"):
-			customer = frappe.db.get_value("Customer", {CUSTOMER_ID_FIELD: customer_id}, "name")
+			if store_name:
+				# Look up customer using multi-store child table
+				customer_name = frappe.db.sql(
+					"""
+					SELECT parent 
+					FROM `tabShopify Customer Store Link`
+					WHERE store = %s AND shopify_customer_id = %s
+					LIMIT 1
+					""",
+					(store_name, customer_id),
+					as_dict=True,
+				)
+				if customer_name:
+					customer = customer_name[0].parent
+			else:
+				# Backward compatibility: single-store lookup
+				customer = frappe.db.get_value("Customer", {CUSTOMER_ID_FIELD: customer_id}, "name")
 
 	so = frappe.db.get_value("Sales Order", {ORDER_ID_FIELD: shopify_order.get("id")}, "name")
 
@@ -87,6 +134,7 @@ def create_sales_order(shopify_order, setting, company=None):
 			setting,
 			getdate(shopify_order.get("created_at")),
 			taxes_inclusive=shopify_order.get("taxes_included"),
+			store_name=store_name,
 		)
 
 		if not items:
@@ -97,28 +145,32 @@ def create_sales_order(shopify_order, setting, company=None):
 			product_not_exists = []  # TODO: fix missing items
 			message += "\n" + ", ".join(product_not_exists)
 
-			create_shopify_log(status="Error", exception=message, rollback=True)
+			create_shopify_log(status="Error", exception=message, rollback=True, store_name=store_name)
 
 			return ""
 
-		taxes = get_order_taxes(shopify_order, setting, items)
-		so = frappe.get_doc(
-			{
-				"doctype": "Sales Order",
-				"naming_series": setting.sales_order_series or "SO-Shopify-",
-				ORDER_ID_FIELD: str(shopify_order.get("id")),
-				ORDER_NUMBER_FIELD: shopify_order.get("name"),
-				"customer": customer,
-				"transaction_date": getdate(shopify_order.get("created_at")) or nowdate(),
-				"delivery_date": getdate(shopify_order.get("created_at")) or nowdate(),
-				"company": setting.company,
-				"selling_price_list": get_dummy_price_list(),
-				"ignore_pricing_rule": 1,
-				"items": items,
-				"taxes": taxes,
-				"tax_category": get_dummy_tax_category(),
-			}
-		)
+		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
+		so_dict = {
+			"doctype": "Sales Order",
+			"naming_series": setting.sales_order_series or "SO-Shopify-",
+			ORDER_ID_FIELD: str(shopify_order.get("id")),
+			ORDER_NUMBER_FIELD: shopify_order.get("name"),
+			"customer": customer,
+			"transaction_date": getdate(shopify_order.get("created_at")) or nowdate(),
+			"delivery_date": getdate(shopify_order.get("created_at")) or nowdate(),
+			"company": setting.company,
+			"selling_price_list": get_dummy_price_list(),
+			"ignore_pricing_rule": 1,
+			"items": items,
+			"taxes": taxes,
+			"tax_category": get_dummy_tax_category(),
+		}
+		
+		# Add store reference for multi-store
+		if store_name:
+			so_dict[STORE_LINK_FIELD] = store_name
+		
+		so = frappe.get_doc(so_dict)
 
 		if company:
 			so.update({"company": company, "status": "Draft"})
@@ -136,7 +188,16 @@ def create_sales_order(shopify_order, setting, company=None):
 	return so
 
 
-def get_order_items(order_items, setting, delivery_date, taxes_inclusive):
+def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_name=None):
+	"""Get line items for Sales Order.
+	
+	Args:
+	    order_items: Shopify line items
+	    setting: Store or Setting doc
+	    delivery_date: Delivery date
+	    taxes_inclusive: Whether taxes are included
+	    store_name: Store name for multi-store item lookup
+	"""
 	items = []
 	all_product_exists = True
 	product_not_exists = []
@@ -150,7 +211,7 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive):
 			continue
 
 		if all_product_exists:
-			item_code = get_item_code(shopify_item)
+			item_code = get_item_code(shopify_item, store_name=store_name)
 			items.append(
 				{
 					"item_code": item_code,
@@ -193,19 +254,27 @@ def _get_total_discount(line_item) -> float:
 	return sum(flt(discount.get("amount")) for discount in discount_allocations)
 
 
-def get_order_taxes(shopify_order, setting, items):
+def get_order_taxes(shopify_order, setting, items, store_name=None):
+	"""Get tax lines for Sales Order.
+	
+	Args:
+	    shopify_order: Shopify order data
+	    setting: Store or Setting doc
+	    items: Sales Order items
+	    store_name: Store name for multi-store tax account lookup
+	"""
 	taxes = []
 	line_items = shopify_order.get("line_items")
 
 	for line_item in line_items:
-		item_code = get_item_code(line_item)
+		item_code = get_item_code(line_item, store_name=store_name)
 		for tax in line_item.get("tax_lines"):
 			taxes.append(
 				{
 					"charge_type": "Actual",
-					"account_head": get_tax_account_head(tax, charge_type="sales_tax"),
+					"account_head": get_tax_account_head(tax, charge_type="sales_tax", setting=setting),
 					"description": (
-						get_tax_account_description(tax)
+						get_tax_account_description(tax, setting=setting)
 						or f"{tax.get('title')} - {tax.get('rate') * 100.0:.2f}%"
 					),
 					"tax_amount": tax.get("price"),
@@ -222,6 +291,7 @@ def get_order_taxes(shopify_order, setting, items):
 		setting,
 		items,
 		taxes_inclusive=shopify_order.get("taxes_included"),
+		store_name=store_name,
 	)
 
 	if cint(setting.consolidate_taxes):
@@ -259,17 +329,36 @@ def consolidate_order_taxes(taxes):
 	return tax_account_wise_data.values()
 
 
-def get_tax_account_head(tax, charge_type: Literal["shipping", "sales_tax"] | None = None):
+def get_tax_account_head(tax, charge_type: Literal["shipping", "sales_tax"] | None = None, setting=None):
+	"""Get tax account head for a tax line.
+	
+	Args:
+	    tax: Tax line data
+	    charge_type: Type of charge ("shipping" or "sales_tax")
+	    setting: Store or Setting doc for multi-store support
+	"""
 	tax_title = str(tax.get("title"))
+	
+	# Determine parent doctype for tax account lookup
+	if setting:
+		parent_doctype = setting.doctype
+		parent_name = setting.name
+	else:
+		parent_doctype = SETTING_DOCTYPE
+		parent_name = SETTING_DOCTYPE
 
 	tax_account = frappe.db.get_value(
 		"Shopify Tax Account",
-		{"parent": SETTING_DOCTYPE, "shopify_tax": tax_title},
+		{"parent": parent_name, "parenttype": parent_doctype, "shopify_tax": tax_title},
 		"tax_account",
 	)
 
 	if not tax_account and charge_type:
-		tax_account = frappe.db.get_single_value(SETTING_DOCTYPE, DEFAULT_TAX_FIELDS[charge_type])
+		# Try default tax account
+		if parent_doctype == STORE_DOCTYPE:
+			tax_account = setting.get(DEFAULT_TAX_FIELDS[charge_type])
+		else:
+			tax_account = frappe.db.get_single_value(SETTING_DOCTYPE, DEFAULT_TAX_FIELDS[charge_type])
 
 	if not tax_account:
 		frappe.throw(_("Tax Account not specified for Shopify Tax {0}").format(tax.get("title")))
@@ -277,21 +366,44 @@ def get_tax_account_head(tax, charge_type: Literal["shipping", "sales_tax"] | No
 	return tax_account
 
 
-def get_tax_account_description(tax):
+def get_tax_account_description(tax, setting=None):
+	"""Get tax account description for a tax line.
+	
+	Args:
+	    tax: Tax line data
+	    setting: Store or Setting doc for multi-store support
+	"""
 	tax_title = tax.get("title")
+	
+	# Determine parent doctype for tax account lookup
+	if setting:
+		parent_doctype = setting.doctype
+		parent_name = setting.name
+	else:
+		parent_doctype = SETTING_DOCTYPE
+		parent_name = SETTING_DOCTYPE
 
 	tax_description = frappe.db.get_value(
 		"Shopify Tax Account",
-		{"parent": SETTING_DOCTYPE, "shopify_tax": tax_title},
+		{"parent": parent_name, "parenttype": parent_doctype, "shopify_tax": tax_title},
 		"tax_description",
 	)
 
 	return tax_description
 
 
-def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxes_inclusive=False):
+def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxes_inclusive=False, store_name=None):
 	"""Shipping lines represents the shipping details,
-	each such shipping detail consists of a list of tax_lines"""
+	each such shipping detail consists of a list of tax_lines
+	
+	Args:
+	    taxes: Tax lines list to update
+	    shipping_lines: Shopify shipping lines
+	    setting: Store or Setting doc
+	    items: Sales Order items
+	    taxes_inclusive: Whether taxes are included
+	    store_name: Store name for multi-store support
+	"""
 	shipping_as_item = cint(setting.add_shipping_as_item) and setting.shipping_item
 	for shipping_charge in shipping_lines:
 		if shipping_charge.get("price"):
@@ -320,8 +432,8 @@ def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxe
 				taxes.append(
 					{
 						"charge_type": "Actual",
-						"account_head": get_tax_account_head(shipping_charge, charge_type="shipping"),
-						"description": get_tax_account_description(shipping_charge)
+						"account_head": get_tax_account_head(shipping_charge, charge_type="shipping", setting=setting),
+						"description": get_tax_account_description(shipping_charge, setting=setting)
 						or shipping_charge["title"],
 						"tax_amount": shipping_charge_amount,
 						"cost_center": setting.cost_center,
@@ -332,9 +444,9 @@ def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxe
 			taxes.append(
 				{
 					"charge_type": "Actual",
-					"account_head": get_tax_account_head(tax, charge_type="sales_tax"),
+					"account_head": get_tax_account_head(tax, charge_type="sales_tax", setting=setting),
 					"description": (
-						get_tax_account_description(tax)
+						get_tax_account_description(tax, setting=setting)
 						or f"{tax.get('title')} - {tax.get('rate') * 100.0:.2f}%"
 					),
 					"tax_amount": tax["price"],
@@ -356,14 +468,19 @@ def get_sales_order(order_id):
 		return frappe.get_doc("Sales Order", sales_order)
 
 
-def cancel_order(payload, request_id=None):
+def cancel_order(payload, request_id=None, store_name=None):
 	"""Called by order/cancelled event.
 
-	When shopify order is cancelled there could be many different someone handles it.
+	When shopify order is cancelled there could be many different ways someone handles it.
 
 	Updates document with custom field showing order status.
 
 	IF sales invoice / delivery notes are not generated against an order, then cancel it.
+	
+	Args:
+	    payload: Shopify order data
+	    request_id: Integration log ID
+	    store_name: Shopify Store name
 	"""
 	frappe.set_user("Administrator")
 	frappe.flags.request_id = request_id
@@ -377,7 +494,7 @@ def cancel_order(payload, request_id=None):
 		sales_order = get_sales_order(order_id)
 
 		if not sales_order:
-			create_shopify_log(status="Invalid", message="Sales Order does not exist")
+			create_shopify_log(status="Invalid", message="Sales Order does not exist", store_name=store_name)
 			return
 
 		sales_invoice = frappe.db.get_value("Sales Invoice", filters={ORDER_ID_FIELD: order_id})
@@ -395,13 +512,14 @@ def cancel_order(payload, request_id=None):
 			frappe.db.set_value("Sales Order", sales_order.name, ORDER_STATUS_FIELD, order_status)
 
 	except Exception as e:
-		create_shopify_log(status="Error", exception=e)
+		create_shopify_log(status="Error", exception=e, store_name=store_name)
 	else:
-		create_shopify_log(status="Success")
+		create_shopify_log(status="Success", store_name=store_name)
 
 
 @temp_shopify_session
 def sync_old_orders():
+	"""Backward compatibility: sync old orders for singleton setting."""
 	shopify_setting = frappe.get_cached_doc(SETTING_DOCTYPE)
 	if not cint(shopify_setting.sync_old_orders):
 		return
@@ -417,6 +535,35 @@ def sync_old_orders():
 	shopify_setting = frappe.get_doc(SETTING_DOCTYPE)
 	shopify_setting.sync_old_orders = 0
 	shopify_setting.save()
+
+
+@temp_shopify_session
+def sync_old_orders_for_store(store_name: str):
+	"""Per-store worker: sync old orders for a specific store.
+	
+	Args:
+	    store_name: Shopify Store name
+	"""
+	store = frappe.get_doc(STORE_DOCTYPE, store_name)
+	
+	if not cint(store.sync_old_orders):
+		return
+
+	orders = _fetch_old_orders(store.old_orders_from, store.old_orders_to)
+
+	for order in orders:
+		log = create_shopify_log(
+			method=EVENT_MAPPER["orders/create"],
+			request_data=json.dumps(order),
+			make_new=True,
+			store_name=store_name,
+		)
+		sync_sales_order(order, request_id=log.name, store_name=store_name)
+
+	# Mark sync as complete
+	store = frappe.get_doc(STORE_DOCTYPE, store_name)
+	store.sync_old_orders = 0
+	store.save()
 
 
 def _fetch_old_orders(from_time, to_time):

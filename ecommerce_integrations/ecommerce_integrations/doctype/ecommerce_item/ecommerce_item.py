@@ -56,29 +56,60 @@ def is_synced(
 	integration_item_code: str,
 	variant_id: str | None = None,
 	sku: str | None = None,
+	store_name: str | None = None,
 ) -> bool:
 	"""Check if item is synced from integration.
 
-	sku is optional. Use SKU alone with integration to check if it's synced.
-	E.g.
-	        integration: shopify,
-	        integration_item_code: TSHIRT
+	For multi-store (Shopify), checks the store_links child table if store_name is provided.
+	Otherwise, checks the legacy single-store fields for backward compatibility.
+	
+	Args:
+	    integration: Integration name (e.g., "shopify")
+	    integration_item_code: Product ID from integration
+	    variant_id: Variant ID (optional)
+	    sku: SKU (optional)
+	    store_name: Store name for multi-store lookups (optional)
 	"""
-	filter = {"integration": integration, "integration_item_code": integration_item_code}
+	if integration == "shopify" and store_name:
+		# Multi-store lookup using child table
+		filters = {
+			"store": store_name,
+			"store_specific_product_id": integration_item_code,
+		}
+		if variant_id:
+			filters["store_specific_variant_id"] = variant_id
+		
+		exists = frappe.db.exists("Ecommerce Item Store Link", filters)
+		return bool(exists)
+	else:
+		# Legacy single-store lookup
+		filter = {"integration": integration, "integration_item_code": integration_item_code}
 
-	if variant_id:
-		filter.update({"variant_id": variant_id})
+		if variant_id:
+			filter.update({"variant_id": variant_id})
 
-	item_exists = bool(frappe.db.exists("Ecommerce Item", filter))
+		item_exists = bool(frappe.db.exists("Ecommerce Item", filter))
 
-	if not item_exists and sku:
-		return _is_sku_synced(integration, sku)
-	return item_exists
+		if not item_exists and sku:
+			return _is_sku_synced(integration, sku, store_name=store_name)
+		return item_exists
 
 
-def _is_sku_synced(integration: str, sku: str) -> bool:
-	filter = {"integration": integration, "sku": sku}
-	return bool(frappe.db.exists("Ecommerce Item", filter))
+def _is_sku_synced(integration: str, sku: str, store_name: str | None = None) -> bool:
+	"""Check if SKU is synced for an integration.
+	
+	Args:
+	    integration: Integration name
+	    sku: SKU to check
+	    store_name: Store name for multi-store lookups
+	"""
+	if integration == "shopify" and store_name:
+		# Multi-store SKU lookup
+		return bool(frappe.db.exists("Ecommerce Item Store Link", {"store": store_name, "store_specific_sku": sku}))
+	else:
+		# Legacy single-store SKU lookup
+		filter = {"integration": integration, "sku": sku}
+		return bool(frappe.db.exists("Ecommerce Item", filter))
 
 
 def get_erpnext_item_code(
@@ -86,14 +117,39 @@ def get_erpnext_item_code(
 	integration_item_code: str,
 	variant_id: str | None = None,
 	has_variants: int | None = 0,
+	store_name: str | None = None,
 ) -> str | None:
-	filters = {"integration": integration, "integration_item_code": integration_item_code}
-	if variant_id:
-		filters.update({"variant_id": variant_id})
-	elif has_variants:
-		filters.update({"has_variants": 1})
+	"""Get ERPNext item code for integration item.
+	
+	Args:
+	    integration: Integration name
+	    integration_item_code: Product ID from integration
+	    variant_id: Variant ID (optional)
+	    has_variants: Whether item has variants
+	    store_name: Store name for multi-store lookups
+	"""
+	if integration == "shopify" and store_name:
+		# Multi-store lookup via child table
+		filters = {
+			"store": store_name,
+			"store_specific_product_id": integration_item_code,
+		}
+		if variant_id:
+			filters["store_specific_variant_id"] = variant_id
+		
+		parent = frappe.db.get_value("Ecommerce Item Store Link", filters, "parent")
+		if parent:
+			return frappe.db.get_value("Ecommerce Item", parent, "erpnext_item_code")
+		return None
+	else:
+		# Legacy single-store lookup
+		filters = {"integration": integration, "integration_item_code": integration_item_code}
+		if variant_id:
+			filters.update({"variant_id": variant_id})
+		elif has_variants:
+			filters.update({"has_variants": 1})
 
-	return frappe.db.get_value("Ecommerce Item", filters, fieldname="erpnext_item_code")
+		return frappe.db.get_value("Ecommerce Item", filters, fieldname="erpnext_item_code")
 
 
 def get_erpnext_item(
@@ -102,20 +158,40 @@ def get_erpnext_item(
 	variant_id: str | None = None,
 	sku: str | None = None,
 	has_variants: int | None = 0,
+	store_name: str | None = None,
 ):
 	"""Get ERPNext item for specified ecommerce_item.
 
 	Note: If variant_id is not specified then item is assumed to be single OR template.
+	
+	Args:
+	    integration: Integration name
+	    integration_item_code: Product ID from integration
+	    variant_id: Variant ID (optional)
+	    sku: SKU (optional)
+	    has_variants: Whether item has variants
+	    store_name: Store name for multi-store lookups
 	"""
-
 	item_code = None
 	if sku:
-		item_code = frappe.db.get_value(
-			"Ecommerce Item", {"sku": sku, "integration": integration}, fieldname="erpnext_item_code"
-		)
+		if integration == "shopify" and store_name:
+			# Multi-store SKU lookup
+			parent = frappe.db.get_value(
+				"Ecommerce Item Store Link",
+				{"store": store_name, "store_specific_sku": sku},
+				"parent"
+			)
+			if parent:
+				item_code = frappe.db.get_value("Ecommerce Item", parent, "erpnext_item_code")
+		else:
+			# Legacy SKU lookup
+			item_code = frappe.db.get_value(
+				"Ecommerce Item", {"sku": sku, "integration": integration}, fieldname="erpnext_item_code"
+			)
+			
 	if not item_code:
 		item_code = get_erpnext_item_code(
-			integration, integration_item_code, variant_id=variant_id, has_variants=has_variants
+			integration, integration_item_code, variant_id=variant_id, has_variants=has_variants, store_name=store_name
 		)
 
 	if item_code:

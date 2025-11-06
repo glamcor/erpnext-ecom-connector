@@ -14,8 +14,13 @@ from ecommerce_integrations.shopify.constants import (
 )
 
 
-def create_shopify_log(**kwargs):
-	return create_log(module_def=MODULE_NAME, **kwargs)
+def create_shopify_log(store_name=None, **kwargs):
+	"""Create Shopify integration log with optional store tagging."""
+	log = create_log(module_def=MODULE_NAME, **kwargs)
+	if store_name and hasattr(log, "db_set"):
+		# Tag log with store name for multi-store filtering
+		log.db_set("shopify_store", store_name, update_modified=False)
+	return log
 
 
 def migrate_from_old_connector(payload=None, request_id=None):

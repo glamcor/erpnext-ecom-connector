@@ -14,7 +14,9 @@
   "variant_id",
   "variant_of",
   "inventory_synced_on",
-  "item_synced_on"
+  "item_synced_on",
+  "section_break_store_links",
+  "store_links"
  ],
  "fields": [
   {
@@ -91,6 +93,20 @@
    "fieldtype": "Datetime",
    "label": "Item Data Synced On",
    "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.integration=='shopify'",
+   "fieldname": "section_break_store_links",
+   "fieldtype": "Section Break",
+   "label": "Multi-Store Links"
+  },
+  {
+   "depends_on": "eval:doc.integration=='shopify'",
+   "fieldname": "store_links",
+   "fieldtype": "Table",
+   "label": "Store Links",
+   "options": "Ecommerce Item Store Link"
   }
  ],
  "index_web_pages_for_search": 1,

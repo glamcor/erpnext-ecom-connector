@@ -13,6 +13,7 @@ from ecommerce_integrations.shopify.constants import (
 	MODULE_NAME,
 	SETTING_DOCTYPE,
 	SHOPIFY_VARIANTS_ATTR_LIST,
+	STORE_DOCTYPE,
 	SUPPLIER_ID_FIELD,
 	WEIGHT_TO_ERPNEXT_UOM_MAP,
 )
@@ -26,12 +27,20 @@ class ShopifyProduct:
 		variant_id: str | None = None,
 		sku: str | None = None,
 		has_variants: int | None = 0,
+		store_name: str | None = None,
 	):
 		self.product_id = str(product_id)
 		self.variant_id = str(variant_id) if variant_id else None
 		self.sku = str(sku) if sku else None
 		self.has_variants = has_variants
-		self.setting = frappe.get_doc(SETTING_DOCTYPE)
+		self.store_name = store_name
+		
+		# Get setting or store doc
+		if store_name:
+			self.setting = frappe.get_doc(STORE_DOCTYPE, store_name)
+		else:
+			# Backward compatibility
+			self.setting = frappe.get_doc(SETTING_DOCTYPE)
 
 		if not self.setting.is_enabled():
 			frappe.throw(_("Can not create Shopify product when integration is disabled."))
@@ -42,6 +51,7 @@ class ShopifyProduct:
 			integration_item_code=self.product_id,
 			variant_id=self.variant_id,
 			sku=self.sku,
+			store_name=self.store_name,
 		)
 
 	def get_erpnext_item(self):
@@ -51,6 +61,7 @@ class ShopifyProduct:
 			variant_id=self.variant_id,
 			sku=self.sku,
 			has_variants=self.has_variants,
+			store_name=self.store_name,
 		)
 
 	@temp_shopify_session
@@ -301,28 +312,38 @@ def _match_sku_and_link_item(item_dict, product_id, variant_id, variant_of=None,
 			return False
 
 
-def create_items_if_not_exist(order):
-	"""Using shopify order, sync all items that are not already synced."""
+def create_items_if_not_exist(order, store_name=None):
+	"""Using shopify order, sync all items that are not already synced.
+	
+	Args:
+	    order: Shopify order data
+	    store_name: Shopify Store name for multi-store support
+	"""
 	for item in order.get("line_items", []):
 		product_id = item["product_id"]
 		variant_id = item.get("variant_id")
 		sku = item.get("sku")
-		product = ShopifyProduct(product_id, variant_id=variant_id, sku=sku)
+		product = ShopifyProduct(product_id, variant_id=variant_id, sku=sku, store_name=store_name)
 
 		if not product.is_synced():
 			product.sync_product()
 
 
-def get_item_code(shopify_item):
+def get_item_code(shopify_item, store_name=None):
 	"""Get item code using shopify_item dict.
 
-	Item should contain both product_id and variant_id."""
-
+	Item should contain both product_id and variant_id.
+	
+	Args:
+	    shopify_item: Shopify line item data
+	    store_name: Shopify Store name for multi-store support
+	"""
 	item = ecommerce_item.get_erpnext_item(
 		integration=MODULE_NAME,
 		integration_item_code=shopify_item.get("product_id"),
 		variant_id=shopify_item.get("variant_id"),
 		sku=shopify_item.get("sku"),
+		store_name=store_name,
 	)
 	if item:
 		return item.item_code

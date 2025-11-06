@@ -3,8 +3,10 @@
 
 
 MODULE_NAME = "shopify"
-SETTING_DOCTYPE = "Shopify Setting"
+SETTING_DOCTYPE = "Shopify Setting"  # Deprecated - kept for backward compatibility
 OLD_SETTINGS_DOCTYPE = "Shopify Settings"
+STORE_DOCTYPE = "Shopify Store"  # Multi-store replacement for SETTING_DOCTYPE
+STORE_LINK_FIELD = "shopify_store"  # Field name on transactional docs
 
 API_VERSION = "2024-01"
 

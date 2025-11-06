@@ -1,0 +1,61 @@
+{
+ "actions": [],
+ "creation": "2025-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "store",
+  "store_specific_product_id",
+  "store_specific_variant_id",
+  "store_specific_sku",
+  "inventory_synced_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "store",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Shopify Store",
+   "options": "Shopify Store",
+   "reqd": 1
+  },
+  {
+   "fieldname": "store_specific_product_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Product ID (Store Specific)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "store_specific_variant_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Variant ID (Store Specific)"
+  },
+  {
+   "fieldname": "store_specific_sku",
+   "fieldtype": "Data",
+   "label": "SKU (Store Specific)"
+  },
+  {
+   "fieldname": "inventory_synced_on",
+   "fieldtype": "Datetime",
+   "label": "Inventory Synced On"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ecommerce Integrations",
+ "name": "Ecommerce Item Store Link",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
+

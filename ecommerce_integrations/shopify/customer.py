@@ -10,13 +10,44 @@ from ecommerce_integrations.shopify.constants import (
 	CUSTOMER_ID_FIELD,
 	MODULE_NAME,
 	SETTING_DOCTYPE,
+	STORE_DOCTYPE,
 )
 
 
 class ShopifyCustomer(EcommerceCustomer):
-	def __init__(self, customer_id: str):
-		self.setting = frappe.get_doc(SETTING_DOCTYPE)
+	def __init__(self, customer_id: str, store_name: str | None = None):
+		"""Initialize Shopify Customer with optional store context.
+		
+		Args:
+		    customer_id: Shopify customer ID
+		    store_name: Shopify Store name for multi-store support
+		"""
+		self.store_name = store_name
+		
+		# Get store-specific or singleton settings
+		if store_name:
+			self.setting = frappe.get_doc(STORE_DOCTYPE, store_name)
+		else:
+			# Backward compatibility
+			self.setting = frappe.get_doc(SETTING_DOCTYPE)
+			
 		super().__init__(customer_id, CUSTOMER_ID_FIELD, MODULE_NAME)
+
+	def is_synced(self) -> bool:
+		"""Check if customer is already synced for this store.
+		
+		For multi-store, checks the child table. For singleton, uses legacy field.
+		"""
+		if self.store_name:
+			# Multi-store lookup via child table
+			exists = frappe.db.exists(
+				"Shopify Customer Store Link",
+				{"store": self.store_name, "shopify_customer_id": self.customer_id}
+			)
+			return bool(exists)
+		else:
+			# Legacy single-store lookup
+			return super().is_synced()
 
 	def sync_customer(self, customer: dict[str, Any]) -> None:
 		"""Create Customer in ERPNext using shopify's Customer dict."""
@@ -27,6 +58,10 @@ class ShopifyCustomer(EcommerceCustomer):
 
 		customer_group = self.setting.customer_group
 		super().sync_customer(customer_name, customer_group)
+
+		# For multi-store, add entry to child table
+		if self.store_name and self.erpnext_customer_name:
+			self._add_store_link()
 
 		billing_address = customer.get("billing_address", {}) or customer.get("default_address")
 		shipping_address = customer.get("shipping_address", {})
@@ -42,6 +77,25 @@ class ShopifyCustomer(EcommerceCustomer):
 
 		self.create_customer_contact(customer)
 
+	def _add_store_link(self) -> None:
+		"""Add customer-store link to multi-store child table."""
+		customer_doc = frappe.get_doc("Customer", self.erpnext_customer_name)
+		
+		# Check if link already exists
+		existing = False
+		for link in customer_doc.get("shopify_store_customer_links", []):
+			if link.store == self.store_name and link.shopify_customer_id == self.customer_id:
+				existing = True
+				break
+		
+		if not existing:
+			customer_doc.append("shopify_store_customer_links", {
+				"store": self.store_name,
+				"shopify_customer_id": self.customer_id,
+				"last_synced_on": frappe.utils.now(),
+			})
+			customer_doc.save(ignore_permissions=True)
+
 	def create_customer_address(
 		self,
 		customer_name,
@@ -52,6 +106,10 @@ class ShopifyCustomer(EcommerceCustomer):
 		"""Create customer address(es) using Customer dict provided by shopify."""
 		address_fields = _map_address_fields(shopify_address, customer_name, address_type, email)
 		super().create_customer_address(address_fields)
+		
+		# For multi-store, add address-store link to child table
+		if self.store_name and shopify_address.get("id"):
+			self._add_address_store_link(shopify_address.get("id"))
 
 	def update_existing_addresses(self, customer):
 		billing_address = customer.get("billing_address", {}) or customer.get("default_address")
@@ -83,6 +141,35 @@ class ShopifyCustomer(EcommerceCustomer):
 			old_address.update({k: v for k, v in new_values.items() if k not in exclude_in_update})
 			old_address.flags.ignore_mandatory = True
 			old_address.save()
+			
+			# For multi-store, update address-store link
+			if self.store_name and shopify_address.get("id"):
+				self._add_address_store_link(shopify_address.get("id"))
+
+	def _add_address_store_link(self, shopify_address_id: str) -> None:
+		"""Add address-store link to multi-store child table."""
+		# Find the address by shopify_address_id (legacy field) or create new link
+		address_name = frappe.db.get_value("Address", {ADDRESS_ID_FIELD: shopify_address_id}, "name")
+		
+		if not address_name:
+			return
+		
+		address_doc = frappe.get_doc("Address", address_name)
+		
+		# Check if link already exists
+		existing = False
+		for link in address_doc.get("shopify_store_address_links", []):
+			if link.store == self.store_name and link.shopify_address_id == shopify_address_id:
+				existing = True
+				break
+		
+		if not existing:
+			address_doc.append("shopify_store_address_links", {
+				"store": self.store_name,
+				"shopify_address_id": shopify_address_id,
+				"last_synced_on": frappe.utils.now(),
+			})
+			address_doc.save(ignore_permissions=True)
 
 	def create_customer_contact(self, shopify_customer: dict[str, Any]) -> None:
 		if not (shopify_customer.get("first_name") and shopify_customer.get("email")):
