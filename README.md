@@ -38,10 +38,8 @@ $ bench get-app https://github.com/glamcor/erpnext-ecom-connector --branch main
 $ bench get-app https://github.com/glamcor/erpnext-ecom-connector --branch develop
 
 # install on site
-$ bench --site sitename install-app ecommerce_integrations
+$ bench --site sitename install-app ecommerce_integrations_multistore
 ```
-
-**Note:** The module/folder name remains `ecommerce_integrations` but the app is published as `ecommerce_integrations_multistore` in the marketplace.
 
 After installation follow user documentation for each integration to set it up.
 

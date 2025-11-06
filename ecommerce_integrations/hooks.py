@@ -1,12 +1,12 @@
 from . import __version__ as app_version
 
-app_name = "ecommerce_integrations"
-app_title = "Ecommerce Integrations"
-app_publisher = "Frappe"
-app_description = "Ecommerce integrations for ERPNext"
+app_name = "ecommerce_integrations_multistore"
+app_title = "Multi-Store Ecommerce Integrations"
+app_publisher = "Glamcor"
+app_description = "Multi-store ecommerce integrations for ERPNext with Shopify, Amazon, Unicommerce, and Zenoti support"
 app_icon = "octicon octicon-file-directory"
 app_color = "grey"
-app_email = "developers@frappe.io"
+app_email = "support@glamcor.com"
 app_license = "GNU GPL v3.0"
 required_apps = ["frappe/erpnext"]
 
