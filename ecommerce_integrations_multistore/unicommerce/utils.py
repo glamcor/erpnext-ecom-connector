@@ -2,7 +2,7 @@ import datetime
 
 import frappe
 
-from ecommerce_integrations_multistore.common_multistore.doctype.ecommerce_integration_log.ecommerce_integration_log import (
+from ecommerce_integrations_multistore.common.doctype.ecommerce_integration_log.ecommerce_integration_log import (
 	create_log,
 )
 from ecommerce_integrations_multistore.unicommerce.constants import MODULE_NAME
