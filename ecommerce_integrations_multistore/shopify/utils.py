@@ -4,7 +4,7 @@
 import frappe
 from frappe import _, _dict
 
-from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_integration_log.ecommerce_integration_log import (
+from ecommerce_integrations_multistore.common_multistore.doctype.ecommerce_integration_log.ecommerce_integration_log import (
 	create_log,
 )
 from ecommerce_integrations_multistore.shopify.constants import (

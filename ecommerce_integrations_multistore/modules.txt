@@ -1,4 +1,4 @@
-Ecommerce Integrations
+Common
 shopify
 Zenoti
 unicommerce

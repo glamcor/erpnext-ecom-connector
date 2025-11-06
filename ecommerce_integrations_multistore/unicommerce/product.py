@@ -6,7 +6,7 @@ from frappe.utils import get_url, now, to_markdown
 from frappe.utils.nestedset import get_root_of
 from stdnum.ean import is_valid as validate_barcode
 
-from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.common_multistore.doctype.ecommerce_item import ecommerce_item
 from ecommerce_integrations_multistore.unicommerce.api_client import JsonDict, UnicommerceAPIClient
 from ecommerce_integrations_multistore.unicommerce.constants import (
 	DEFAULT_WEIGHT_UOM,

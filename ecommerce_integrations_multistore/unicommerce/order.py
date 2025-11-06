@@ -7,7 +7,7 @@ import frappe
 from frappe.utils import add_to_date, flt
 
 from ecommerce_integrations_multistore.controllers.scheduling import need_to_run
-from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.common_multistore.doctype.ecommerce_item import ecommerce_item
 from ecommerce_integrations_multistore.unicommerce.api_client import UnicommerceAPIClient
 from ecommerce_integrations_multistore.unicommerce.constants import (
 	CHANNEL_ID_FIELD,

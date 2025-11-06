@@ -10,7 +10,7 @@ from frappe import _
 from frappe.utils import cint, flt, nowdate
 from frappe.utils.file_manager import save_file
 
-from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.common_multistore.doctype.ecommerce_item import ecommerce_item
 from ecommerce_integrations_multistore.unicommerce.api_client import UnicommerceAPIClient
 from ecommerce_integrations_multistore.unicommerce.constants import (
 	CHANNEL_ID_FIELD,

@@ -6,7 +6,7 @@ from erpnext.stock.doctype.item.test_item import make_item
 from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
 from erpnext.stock.utils import get_stock_balance
 
-from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.common_multistore.doctype.ecommerce_item import ecommerce_item
 from ecommerce_integrations_multistore.unicommerce.constants import MODULE_NAME
 from ecommerce_integrations_multistore.unicommerce.inventory import update_inventory_on_unicommerce
 from ecommerce_integrations_multistore.unicommerce.tests.test_client import TestCaseApiClient
