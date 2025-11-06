@@ -1,6 +1,6 @@
 [project]
-name='ecommerce_integrations_multistore'
-description='Multi-store ecommerce integrations for ERPNext with Shopify, Amazon, Unicommerce, and Zenoti support'
+name = "ecommerce_integrations_multistore"
+description = "Multi-store ecommerce integrations for ERPNext with Shopify, Amazon, Unicommerce, and Zenoti support"
 authors = [
     { name = "Frappe Technologies Pvt Ltd", email = "developers@frappe.io"}
 ]
