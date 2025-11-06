@@ -158,6 +158,12 @@
    "fieldtype": "Column Break"
   },
   {
+   "fieldname": "price_list",
+   "fieldtype": "Link",
+   "label": "Price List",
+   "options": "Price List"
+  },
+  {
    "fieldname": "company_dependent_settings_section",
    "fieldtype": "Section Break",
    "label": "Company Dependent settings"
