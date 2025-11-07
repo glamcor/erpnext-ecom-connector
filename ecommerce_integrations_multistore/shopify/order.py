@@ -537,6 +537,7 @@ def sync_old_orders():
 	shopify_setting.save()
 
 
+@frappe.whitelist()
 @temp_shopify_session
 def sync_old_orders_for_store(store_name: str):
 	"""Per-store worker: sync old orders for a specific store.
