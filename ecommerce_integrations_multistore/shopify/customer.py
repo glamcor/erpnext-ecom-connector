@@ -60,8 +60,11 @@ class ShopifyCustomer(EcommerceCustomer):
 		super().sync_customer(customer_name, customer_group)
 
 		# For multi-store, add entry to child table
-		if self.store_name and self.erpnext_customer_name:
-			self._add_store_link()
+		if self.store_name:
+			# Get the ERPNext customer name that was just created
+			erpnext_customer_name = self.get_customer_doc().name
+			if erpnext_customer_name:
+				self._add_store_link(erpnext_customer_name)
 
 		billing_address = customer.get("billing_address", {}) or customer.get("default_address")
 		shipping_address = customer.get("shipping_address", {})
@@ -77,9 +80,9 @@ class ShopifyCustomer(EcommerceCustomer):
 
 		self.create_customer_contact(customer)
 
-	def _add_store_link(self) -> None:
+	def _add_store_link(self, erpnext_customer_name: str) -> None:
 		"""Add customer-store link to multi-store child table."""
-		customer_doc = frappe.get_doc("Customer", self.erpnext_customer_name)
+		customer_doc = frappe.get_doc("Customer", erpnext_customer_name)
 		
 		# Check if link already exists
 		existing = False
