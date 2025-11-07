@@ -60,11 +60,9 @@ class ShopifyCustomer(EcommerceCustomer):
 		super().sync_customer(customer_name, customer_group)
 
 		# For multi-store, add entry to child table
+		# The ERPNext customer name is the customer_id (set in parent class line 29)
 		if self.store_name:
-			# Get the ERPNext customer name that was just created
-			erpnext_customer_name = self.get_customer_doc().name
-			if erpnext_customer_name:
-				self._add_store_link(erpnext_customer_name)
+			self._add_store_link(self.customer_id)
 
 		billing_address = customer.get("billing_address", {}) or customer.get("default_address")
 		shipping_address = customer.get("shipping_address", {})
