@@ -61,7 +61,9 @@ class ShopifyCustomer(EcommerceCustomer):
 
 		# For multi-store, add entry to child table
 		# The ERPNext customer name is the customer_id (set in parent class line 29)
+		# Customer was just created by parent, so we can safely add the link
 		if self.store_name:
+			frappe.db.commit()  # Ensure customer is committed before adding link
 			self._add_store_link(self.customer_id)
 
 		billing_address = customer.get("billing_address", {}) or customer.get("default_address")
