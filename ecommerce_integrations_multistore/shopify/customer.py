@@ -57,14 +57,21 @@ class ShopifyCustomer(EcommerceCustomer):
 			customer_name = customer.get("email")
 
 		customer_group = self.setting.customer_group
-		super().sync_customer(customer_name, customer_group)
+		
+		# Only create customer if it doesn't exist (parent doesn't check)
+		if not frappe.db.exists("Customer", self.customer_id):
+			super().sync_customer(customer_name, customer_group)
 
-		# For multi-store, add entry to child table
+		# For multi-store, add entry to child table if not already linked
 		# The ERPNext customer name is the customer_id (set in parent class line 29)
-		# Customer was just created by parent, so we can safely add the link
 		if self.store_name:
-			frappe.db.commit()  # Ensure customer is committed before adding link
-			self._add_store_link(self.customer_id)
+			# Check if this store link already exists
+			link_exists = frappe.db.exists(
+				"Shopify Customer Store Link",
+				{"store": self.store_name, "shopify_customer_id": self.customer_id}
+			)
+			if not link_exists:
+				self._add_store_link(self.customer_id)
 
 		billing_address = customer.get("billing_address", {}) or customer.get("default_address")
 		shipping_address = customer.get("shipping_address", {})
