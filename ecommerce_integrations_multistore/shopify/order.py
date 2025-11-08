@@ -181,6 +181,10 @@ def create_sales_order(shopify_order, setting, company=None):
 
 		if shopify_order.get("note"):
 			so.add_comment(text=f"Order Note: {shopify_order.get('note')}")
+		
+		# Sync Shopify tags to ERPNext native tagging system
+		if shopify_order.get("tags"):
+			_sync_order_tags(so, shopify_order.get("tags"))
 
 	else:
 		so = frappe.get_doc("Sales Order", so)
@@ -565,6 +569,32 @@ def sync_old_orders_for_store(store_name: str):
 	store = frappe.get_doc(STORE_DOCTYPE, store_name)
 	store.sync_old_orders = 0
 	store.save()
+
+
+def _sync_order_tags(sales_order, shopify_tags: str) -> None:
+	"""Parse Shopify tags and add them to Sales Order using ERPNext native tagging.
+	
+	Args:
+	    sales_order: ERPNext Sales Order document
+	    shopify_tags: Comma-separated string of tags from Shopify (e.g., "wholesale, priority")
+	"""
+	if not shopify_tags or not isinstance(shopify_tags, str):
+		return
+	
+	# Parse comma-separated tags and clean them
+	tags = [tag.strip() for tag in shopify_tags.split(",") if tag.strip()]
+	
+	# Add each tag using ERPNext's native tagging system
+	from frappe.desk.doctype.tag.tag import add_tag
+	for tag in tags:
+		try:
+			add_tag(tag, "Sales Order", sales_order.name)
+		except Exception as e:
+			# Don't fail the order sync if tagging fails
+			frappe.log_error(
+				message=f"Failed to add tag '{tag}' to Sales Order {sales_order.name}: {str(e)}",
+				title="Shopify Tag Sync Error"
+			)
 
 
 def _fetch_old_orders(from_time, to_time):
