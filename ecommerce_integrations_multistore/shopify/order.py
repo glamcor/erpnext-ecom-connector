@@ -238,10 +238,15 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 			item_code = get_item_code(shopify_item, store_name=store_name)
 		elif shopify_item.get("sku"):
 			# Product doesn't exist in Shopify catalog but has SKU - try to match by SKU
-			item_code = frappe.db.get_value("Item", {"item_code": shopify_item.get("sku")})
-			if not item_code:
-				# Try alternate SKU fields
-				item_code = frappe.db.get_value("Item", {"item_name": shopify_item.get("sku")})
+			# This handles Duoplane, draft orders, and custom line items
+			sku = shopify_item.get("sku")
+			
+			# Try multiple fields where SKU might be stored
+			item_code = (
+				frappe.db.get_value("Item", {"item_code": sku}) or
+				frappe.db.get_value("Item", {"sku": sku}) or  # Variant SKU field
+				frappe.db.get_value("Item", {"item_name": sku})
+			)
 		
 		if not item_code:
 			# Item not found - track for error reporting
