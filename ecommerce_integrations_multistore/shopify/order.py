@@ -259,21 +259,25 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 		# Get income account from Item, Item Group, or Company
 		income_account = _get_income_account(item_code, setting.company)
 		
-		items.append(
-			{
-				"item_code": item_code,
-				"item_name": shopify_item.get("name") or shopify_item.get("title"),
-				"rate": _get_item_price(shopify_item, taxes_inclusive),
-				"delivery_date": delivery_date,
-				"qty": shopify_item.get("quantity"),
-				"stock_uom": shopify_item.get("uom") or "Nos",
-				"warehouse": setting.warehouse,
-				"income_account": income_account,
-				ORDER_ITEM_DISCOUNT_FIELD: (
-					_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
-				),
-			}
-		)
+		# Build item dict
+		item_dict = {
+			"item_code": item_code,
+			"item_name": shopify_item.get("name") or shopify_item.get("title"),
+			"rate": _get_item_price(shopify_item, taxes_inclusive),
+			"delivery_date": delivery_date,
+			"qty": shopify_item.get("quantity"),
+			"stock_uom": shopify_item.get("uom") or "Nos",
+			"warehouse": setting.warehouse,
+			ORDER_ITEM_DISCOUNT_FIELD: (
+				_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
+			),
+		}
+		
+		# Only add income_account if we found one (optional for ignore_validate mode)
+		if income_account:
+			item_dict["income_account"] = income_account
+		
+		items.append(item_dict)
 
 	return items
 
@@ -634,7 +638,8 @@ def _get_income_account(item_code: str, company: str) -> str:
 	# Fall back to Item Group's default income account
 	if item_doc.item_group:
 		item_group_doc = frappe.get_cached_doc("Item Group", item_doc.item_group)
-		for account in item_group_doc.get("accounts", []):
+		accounts = item_group_doc.get("accounts") or []
+		for account in accounts:
 			if account.company == company and account.income_account:
 				return account.income_account
 	
