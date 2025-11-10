@@ -181,14 +181,14 @@ def create_sales_order(shopify_order, setting, company=None):
 		if company:
 			so.update({"company": company, "status": "Draft"})
 		
-		# Apply channel-specific cost center and bank account
+		# Apply channel-specific cost center to all line items
 		if cost_center:
 			for item in so.items:
 				item.cost_center = cost_center
 		
-		if cash_bank_account:
-			# Set bank account for payment reconciliation
-			so.set_advances()  # Ensure advances section exists
+		# Note: Bank account is tracked at store level for reconciliation
+		# The cash_bank_account mapping is used for financial reporting
+		# but doesn't need to be set on the Sales Order itself
 			
 		so.flags.ignore_mandatory = True
 		so.flags.shopiy_order_json = json.dumps(shopify_order)
