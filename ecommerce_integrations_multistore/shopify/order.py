@@ -230,36 +230,45 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 	product_not_exists = []
 
 	for shopify_item in order_items:
-		if not shopify_item.get("product_exists"):
+		item_code = None
+		
+		# Try to get item code even if product_exists is false
+		# For Duoplane and similar integrations, product_id might be null but SKU exists
+		if shopify_item.get("product_exists"):
+			item_code = get_item_code(shopify_item, store_name=store_name)
+		elif shopify_item.get("sku"):
+			# Product doesn't exist in Shopify catalog but has SKU - try to match by SKU
+			item_code = frappe.db.get_value("Item", {"item_code": shopify_item.get("sku")})
+			if not item_code:
+				# Try alternate SKU fields
+				item_code = frappe.db.get_value("Item", {"item_name": shopify_item.get("sku")})
+		
+		if not item_code:
+			# Item not found - track for error reporting
 			all_product_exists = False
 			product_not_exists.append(
-				{"title": shopify_item.get("title"), ORDER_ID_FIELD: shopify_item.get("id")}
+				{"title": shopify_item.get("title"), "sku": shopify_item.get("sku"), ORDER_ID_FIELD: shopify_item.get("id")}
 			)
 			continue
-
-		if all_product_exists:
-			item_code = get_item_code(shopify_item, store_name=store_name)
-			
-			# Get income account from Item, Item Group, or Company
-			income_account = _get_income_account(item_code, setting.company)
-			
-			items.append(
-				{
-					"item_code": item_code,
-					"item_name": shopify_item.get("name"),
-					"rate": _get_item_price(shopify_item, taxes_inclusive),
-					"delivery_date": delivery_date,
-					"qty": shopify_item.get("quantity"),
-					"stock_uom": shopify_item.get("uom") or "Nos",
-					"warehouse": setting.warehouse,
-					"income_account": income_account,
-					ORDER_ITEM_DISCOUNT_FIELD: (
-						_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
-					),
-				}
-			)
-		else:
-			items = []
+		
+		# Get income account from Item, Item Group, or Company
+		income_account = _get_income_account(item_code, setting.company)
+		
+		items.append(
+			{
+				"item_code": item_code,
+				"item_name": shopify_item.get("name") or shopify_item.get("title"),
+				"rate": _get_item_price(shopify_item, taxes_inclusive),
+				"delivery_date": delivery_date,
+				"qty": shopify_item.get("quantity"),
+				"stock_uom": shopify_item.get("uom") or "Nos",
+				"warehouse": setting.warehouse,
+				"income_account": income_account,
+				ORDER_ITEM_DISCOUNT_FIELD: (
+					_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
+				),
+			}
+		)
 
 	return items
 
