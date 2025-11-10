@@ -150,6 +150,12 @@ def create_sales_order(shopify_order, setting, company=None):
 			return ""
 
 		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
+		
+		# Get cost center and bank account based on sales channel
+		cost_center, cash_bank_account = _get_channel_financials(
+			shopify_order, setting
+		)
+		
 		so_dict = {
 			"doctype": "Sales Order",
 			"naming_series": setting.sales_order_series or "SO-Shopify-",
@@ -174,6 +180,16 @@ def create_sales_order(shopify_order, setting, company=None):
 
 		if company:
 			so.update({"company": company, "status": "Draft"})
+		
+		# Apply channel-specific cost center and bank account
+		if cost_center:
+			for item in so.items:
+				item.cost_center = cost_center
+		
+		if cash_bank_account:
+			# Set bank account for payment reconciliation
+			so.set_advances()  # Ensure advances section exists
+			
 		so.flags.ignore_mandatory = True
 		so.flags.shopiy_order_json = json.dumps(shopify_order)
 		so.save(ignore_permissions=True)
@@ -569,6 +585,31 @@ def sync_old_orders_for_store(store_name: str):
 	store = frappe.get_doc(STORE_DOCTYPE, store_name)
 	store.sync_old_orders = 0
 	store.save()
+
+
+def _get_channel_financials(shopify_order: dict, setting) -> tuple[str | None, str | None]:
+	"""Get cost center and bank account based on order's sales channel.
+	
+	Args:
+	    shopify_order: Shopify order data dict
+	    setting: Shopify Store or Setting doc
+	
+	Returns:
+	    tuple: (cost_center, cash_bank_account) or (None, None) if using defaults
+	"""
+	source_name = shopify_order.get("source_name", "").lower().strip()
+	
+	if not source_name or not hasattr(setting, "sales_channel_mapping"):
+		# No source or no mapping table - use defaults
+		return None, None
+	
+	# Look up in sales channel mapping table
+	for mapping in setting.sales_channel_mapping:
+		if mapping.sales_channel_name.lower().strip() == source_name:
+			return mapping.cost_center, mapping.cash_bank_account
+	
+	# No mapping found - use defaults
+	return None, None
 
 
 def _sync_order_tags(sales_order, shopify_tags: str) -> None:
