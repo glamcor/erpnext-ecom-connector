@@ -98,6 +98,18 @@ def _retry_job(job: str):
 	doc = frappe.get_doc("Ecommerce Integration Log", job)
 	if not doc.method.startswith("ecommerce_integrations_multistore.") or doc.status != "Error":
 		return
+	
+	# Don't retry product upload methods if uploads are disabled
+	if "upload" in doc.method.lower() or "product" in doc.method.lower():
+		frappe.msgprint(
+			_("This appears to be a product upload operation. "
+			  "Please ensure 'Upload ERPNext Items to Shopify' is enabled in your store settings "
+			  "before retrying product uploads."),
+			indicator="orange",
+			title=_("Product Upload Retry")
+		)
+		# Still allow retry in case user wants to enable and retry
+		# return  # Uncomment this to prevent retry entirely
 
 	doc.db_set("status", "Queued", update_modified=False)
 	doc.db_set("traceback", "", update_modified=False)
