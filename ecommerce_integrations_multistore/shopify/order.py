@@ -182,8 +182,9 @@ def create_sales_order(shopify_order, setting, company=None):
 			so.update({"company": company, "status": "Draft"})
 		
 		so.flags.ignore_mandatory = True
+		so.flags.ignore_validate = True
 		
-		# Apply channel-specific cost center to all line items (after save to ensure items exist)
+		# Apply channel-specific cost center to all line items
 		if cost_center:
 			for item in so.items:
 				item.cost_center = cost_center
