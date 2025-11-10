@@ -183,6 +183,7 @@ def create_sales_order(shopify_order, setting, company=None):
 		
 		so.flags.ignore_mandatory = True
 		so.flags.ignore_validate = True
+		so.flags.ignore_validate_update_after_submit = True
 		
 		# Apply channel-specific cost center to all line items
 		if cost_center:
@@ -192,6 +193,12 @@ def create_sales_order(shopify_order, setting, company=None):
 		# Note: Bank account from channel mapping is used for financial reporting/reconciliation
 		# It's tracked at the mapping level for identifying which account money flows to
 		so.flags.shopiy_order_json = json.dumps(shopify_order)
+		
+		# Set UOM conversion factor to 1 for all items to avoid validation errors
+		for item in so.items:
+			if not item.conversion_factor or item.conversion_factor == 0:
+				item.conversion_factor = 1.0
+		
 		so.save(ignore_permissions=True)
 		so.submit()
 
