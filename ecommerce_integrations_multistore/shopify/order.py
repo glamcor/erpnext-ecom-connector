@@ -239,6 +239,10 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 
 		if all_product_exists:
 			item_code = get_item_code(shopify_item, store_name=store_name)
+			
+			# Get income account from Item, Item Group, or Company
+			income_account = _get_income_account(item_code, setting.company)
+			
 			items.append(
 				{
 					"item_code": item_code,
@@ -248,6 +252,7 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 					"qty": shopify_item.get("quantity"),
 					"stock_uom": shopify_item.get("uom") or "Nos",
 					"warehouse": setting.warehouse,
+					"income_account": income_account,
 					ORDER_ITEM_DISCOUNT_FIELD: (
 						_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
 					),
@@ -592,6 +597,50 @@ def sync_old_orders_for_store(store_name: str):
 	store = frappe.get_doc(STORE_DOCTYPE, store_name)
 	store.sync_old_orders = 0
 	store.save()
+
+
+def _get_income_account(item_code: str, company: str) -> str:
+	"""Get income account for an item, falling back through Item → Item Group → Company.
+	
+	Args:
+	    item_code: ERPNext Item code
+	    company: Company name
+	
+	Returns:
+	    Income account name
+	"""
+	# Try to get from Item's company-specific account
+	item_doc = frappe.get_cached_doc("Item", item_code)
+	
+	# Check item's income account for this company
+	for account in item_doc.get("item_defaults", []):
+		if account.company == company and account.income_account:
+			return account.income_account
+	
+	# Fall back to Item Group's default income account
+	if item_doc.item_group:
+		item_group_doc = frappe.get_cached_doc("Item Group", item_doc.item_group)
+		for account in item_group_doc.get("accounts", []):
+			if account.company == company and account.income_account:
+				return account.income_account
+	
+	# Fall back to Company's default income account
+	company_doc = frappe.get_cached_doc("Company", company)
+	if company_doc.default_income_account:
+		return company_doc.default_income_account
+	
+	# Last resort - get any income account for this company
+	income_account = frappe.db.get_value(
+		"Account",
+		{
+			"company": company,
+			"account_type": "Income Account",
+			"is_group": 0
+		},
+		"name"
+	)
+	
+	return income_account or None
 
 
 def _get_channel_financials(shopify_order: dict, setting) -> tuple[str | None, str | None]:
