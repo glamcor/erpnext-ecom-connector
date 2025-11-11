@@ -284,8 +284,8 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 			# First try exact item_code match
 			item_code = frappe.db.get_value("Item", {"item_code": sku, "disabled": 0})
 			
-			# Then try SKU field (for variants)
-			if not item_code:
+			# Then try SKU field (for variants) - only if the field exists
+			if not item_code and frappe.db.has_column("Item", "sku"):
 				item_code = frappe.db.get_value("Item", {"sku": sku, "disabled": 0})
 			
 			# Then try barcode field
