@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 import frappe
-from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_delivery_note
 from frappe.utils import cint, cstr, getdate
 
 from ecommerce_integrations_multistore.shopify.constants import (
@@ -12,7 +12,6 @@ from ecommerce_integrations_multistore.shopify.constants import (
 	STORE_DOCTYPE,
 	STORE_LINK_FIELD,
 )
-from ecommerce_integrations_multistore.shopify.order import get_sales_order
 from ecommerce_integrations_multistore.shopify.utils import create_shopify_log
 
 
@@ -30,10 +29,16 @@ def prepare_delivery_note(payload, request_id=None, store_name=None):
 	order = payload
 
 	try:
-		sales_order = get_sales_order(cstr(order["id"]))
-		if sales_order:
-			# Get store from Sales Order or use provided store_name
-			store_name = store_name or sales_order.get(STORE_LINK_FIELD)
+		# Look for Sales Invoice instead of Sales Order
+		sales_invoice = frappe.db.get_value(
+			"Sales Invoice",
+			{ORDER_ID_FIELD: cstr(order["id"])},
+			["name", "docstatus", STORE_LINK_FIELD],
+			as_dict=True
+		)
+		if sales_invoice:
+			# Get store from Sales Invoice or use provided store_name
+			store_name = store_name or sales_invoice.get(STORE_LINK_FIELD)
 			
 			# Get store-specific settings
 			if store_name:
@@ -42,25 +47,27 @@ def prepare_delivery_note(payload, request_id=None, store_name=None):
 				# Backward compatibility
 				setting = frappe.get_doc(SETTING_DOCTYPE)
 			
-			create_delivery_note(order, setting, sales_order, store_name=store_name)
+			# Get the full Sales Invoice doc
+			si = frappe.get_doc("Sales Invoice", sales_invoice.name)
+			create_delivery_note(order, setting, si, store_name=store_name)
 			create_shopify_log(status="Success", store_name=store_name)
 		else:
 			create_shopify_log(
 				status="Invalid",
-				message="Sales Order not found for syncing delivery note.",
+				message="Sales Invoice not found for syncing delivery note.",
 				store_name=store_name
 			)
 	except Exception as e:
 		create_shopify_log(status="Error", exception=e, rollback=True, store_name=store_name)
 
 
-def create_delivery_note(shopify_order, setting, so, store_name=None):
+def create_delivery_note(shopify_order, setting, si, store_name=None):
 	"""Create Delivery Note from Shopify order.
 	
 	Args:
 	    shopify_order: Shopify order data
 	    setting: Store or Setting doc
-	    so: Sales Order doc
+	    si: Sales Invoice doc
 	    store_name: Shopify Store name for multi-store support
 	"""
 	if not cint(setting.sync_delivery_note):
@@ -69,9 +76,9 @@ def create_delivery_note(shopify_order, setting, so, store_name=None):
 	for fulfillment in shopify_order.get("fulfillments"):
 		if (
 			not frappe.db.get_value("Delivery Note", {FULLFILLMENT_ID_FIELD: fulfillment.get("id")}, "name")
-			and so.docstatus == 1
+			and si.docstatus == 1
 		):
-			dn = make_delivery_note(so.name)
+			dn = make_delivery_note(si.name)
 			setattr(dn, ORDER_ID_FIELD, fulfillment.get("order_id"))
 			setattr(dn, ORDER_NUMBER_FIELD, shopify_order.get("name"))
 			setattr(dn, FULLFILLMENT_ID_FIELD, fulfillment.get("id"))

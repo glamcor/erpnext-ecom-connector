@@ -13,39 +13,49 @@ from ecommerce_integrations_multistore.shopify.utils import create_shopify_log
 
 
 def prepare_sales_invoice(payload, request_id=None, store_name=None):
-	"""Prepare sales invoice from Shopify webhook.
+	"""Update payment status on existing Sales Invoice.
+	
+	Since we now create Sales Invoice on orders/create webhook,
+	this webhook only updates the payment status.
 	
 	Args:
 	    payload: Shopify order data
 	    request_id: Integration log ID
 	    store_name: Shopify Store name (multi-store support)
 	"""
-	from ecommerce_integrations_multistore.shopify.order import get_sales_order
-
 	order = payload
 
 	frappe.set_user("Administrator")
 	frappe.flags.request_id = request_id
 
 	try:
-		sales_order = get_sales_order(cstr(order["id"]))
-		if sales_order:
-			# Get store from Sales Order or use provided store_name
-			store_name = store_name or sales_order.get(STORE_LINK_FIELD)
+		# Look for existing Sales Invoice
+		sales_invoice = frappe.db.get_value(
+			"Sales Invoice", 
+			{ORDER_ID_FIELD: cstr(order["id"])}, 
+			["name", "docstatus"],
+			as_dict=True
+		)
+		
+		if sales_invoice:
+			# Update payment status
+			si = frappe.get_doc("Sales Invoice", sales_invoice.name)
 			
-			# Get store-specific settings
-			if store_name:
-				setting = frappe.get_doc(STORE_DOCTYPE, store_name)
-			else:
-				# Backward compatibility
-				setting = frappe.get_doc(SETTING_DOCTYPE)
+			# Update financial status
+			if ORDER_NUMBER_FIELD in si.meta.fields:
+				si.db_set(ORDER_NUMBER_FIELD, order.get("name"))
 			
-			create_sales_invoice(order, setting, sales_order, store_name=store_name)
-			create_shopify_log(status="Success", store_name=store_name)
+			# Add comment about payment received
+			si.add_comment(
+				comment_type="Info",
+				text=f"Payment received via Shopify. Financial status: {order.get('financial_status')}"
+			)
+			
+			create_shopify_log(status="Success", message="Payment status updated", store_name=store_name)
 		else:
 			create_shopify_log(
 				status="Invalid",
-				message="Sales Order not found for syncing sales invoice.",
+				message="Sales Invoice not found for updating payment status.",
 				store_name=store_name
 			)
 	except Exception as e:

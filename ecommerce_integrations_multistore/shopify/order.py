@@ -50,6 +50,8 @@ def is_complete_order(shopify_order):
 def sync_sales_order(payload, request_id=None, store_name=None):
 	"""Sync sales order from Shopify webhook to ERPNext.
 	
+	Creates a draft Sales Invoice instead of Sales Order.
+	
 	Args:
 	    payload: Shopify order data
 	    request_id: Integration log ID
@@ -59,11 +61,11 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 	frappe.set_user("Administrator")
 	frappe.flags.request_id = request_id
 
-	# Check if order already exists
-	if frappe.db.get_value("Sales Order", filters={ORDER_ID_FIELD: cstr(order["id"])}):
+	# Check if invoice already exists
+	if frappe.db.get_value("Sales Invoice", filters={ORDER_ID_FIELD: cstr(order["id"])}):
 		create_shopify_log(
 			status="Invalid", 
-			message="Sales order already exists, not synced",
+			message="Sales invoice already exists, not synced",
 			store_name=store_name
 		)
 		return
@@ -100,18 +102,18 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 		# Sync items with store context
 		create_items_if_not_exist(order, store_name=store_name)
 
-		# Create order and verify it was actually created
-		result = create_order(order, store)
+		# Create invoice and verify it was actually created
+		result = create_sales_invoice(order, store)
 		
 		# Debug logging
 		frappe.log_error(
-			message=f"create_order result: {result}, Order ID: {order.get('id')}, Order Name: {order.get('name')}",
-			title=f"Shopify Order Creation Debug"
+			message=f"create_sales_invoice result: {result}, Order ID: {order.get('id')}, Order Name: {order.get('name')}",
+			title=f"Shopify Invoice Creation Debug"
 		)
 		
-		# CRITICAL: Verify order was created
+		# CRITICAL: Verify invoice was created
 		if not result:
-			raise Exception(f"Order creation failed - no result returned for Shopify order {order.get('name')}")
+			raise Exception(f"Invoice creation failed - no result returned for Shopify order {order.get('name')}")
 		
 	except Exception as e:
 		create_shopify_log(status="Error", exception=e, rollback=True, store_name=store_name)
@@ -136,12 +138,12 @@ def handle_order_update(payload, request_id=None, store_name=None):
 	
 	order_id = cstr(order["id"])
 	
-	# Check if we already have a Sales Order for this
-	if frappe.db.get_value("Sales Order", filters={ORDER_ID_FIELD: order_id}):
+	# Check if we already have a Sales Invoice for this
+	if frappe.db.get_value("Sales Invoice", filters={ORDER_ID_FIELD: order_id}):
 		# Order already processed, ignore update
 		create_shopify_log(
 			status="Invalid",
-			message="Sales order already exists, update ignored",
+			message="Sales invoice already exists, update ignored",
 			store_name=store_name
 		)
 		return
@@ -348,6 +350,169 @@ def create_sales_order(shopify_order, setting, company=None):
 		so = frappe.get_doc("Sales Order", so)
 
 	return so
+
+
+def create_sales_invoice(shopify_order, setting, company=None):
+	"""Create draft Sales Invoice from Shopify order.
+	
+	Args:
+	    shopify_order: Shopify order data
+	    setting: Store or Setting doc (backward compatible)
+	    company: Optional company override
+	"""
+	customer = setting.default_customer
+	store_name = setting.name if setting.doctype == STORE_DOCTYPE else None
+	
+	# Multi-store customer lookup
+	if shopify_order.get("customer", {}):
+		if customer_id := shopify_order.get("customer", {}).get("id"):
+			if store_name:
+				# Look up customer using multi-store child table
+				customer_name = frappe.db.sql(
+					"""
+					SELECT parent 
+					FROM `tabShopify Customer Store Link`
+					WHERE store = %s AND shopify_customer_id = %s
+					LIMIT 1
+					""",
+					(store_name, customer_id),
+					as_dict=True,
+				)
+				if customer_name:
+					customer = customer_name[0].parent
+			else:
+				# Backward compatibility: single-store lookup
+				customer = frappe.db.get_value("Customer", {CUSTOMER_ID_FIELD: customer_id}, "name")
+
+	# Check if invoice already exists
+	si = frappe.db.get_value("Sales Invoice", {ORDER_ID_FIELD: shopify_order.get("id")}, "name")
+
+	if not si:
+		items = get_order_items(
+			shopify_order.get("line_items"),
+			setting,
+			getdate(shopify_order.get("created_at")),
+			taxes_inclusive=shopify_order.get("taxes_included"),
+			store_name=store_name,
+		)
+		
+		# Debug logging for items
+		frappe.log_error(
+			message=f"Items found: {len(items) if items else 0}, Order: {shopify_order.get('name')}, Line items: {len(shopify_order.get('line_items', []))}",
+			title="Shopify Invoice Items Debug"
+		)
+
+		if not items:
+			message = (
+				"No items could be matched in ERPNext for Shopify order {}. "
+				"Line items: {}".format(
+					shopify_order.get('name'),
+					[{"sku": item.get('sku'), "product_id": item.get('product_id'), "title": item.get('title')} 
+					 for item in shopify_order.get('line_items', [])]
+				)
+			)
+
+			create_shopify_log(status="Error", exception=message, rollback=True, store_name=store_name)
+			# Raise exception instead of returning empty string
+			raise Exception(message)
+
+		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
+		
+		# Get cost center and bank account based on sales channel
+		cost_center, cash_bank_account = _get_channel_financials(
+			shopify_order, setting
+		)
+		
+		si_dict = {
+			"doctype": "Sales Invoice",
+			"naming_series": setting.sales_invoice_series or "SI-Shopify-",
+			ORDER_ID_FIELD: str(shopify_order.get("id")),
+			ORDER_NUMBER_FIELD: shopify_order.get("name"),
+			ORDER_STATUS_FIELD: shopify_order.get("financial_status"),
+			"customer": customer,
+			"posting_date": getdate(shopify_order.get("created_at")) or nowdate(),
+			"due_date": getdate(shopify_order.get("created_at")) or nowdate(),
+			"company": setting.company,
+			"selling_price_list": get_dummy_price_list(),
+			"ignore_pricing_rule": 1,
+			"items": items,
+			"taxes": taxes,
+			"tax_category": get_dummy_tax_category(),
+			"is_pos": 0,  # Not point of sale
+			"update_stock": 1,  # Update stock on submission
+			"status": "Draft",  # Ensure draft status
+		}
+		
+		# Add store reference for multi-store
+		if store_name:
+			si_dict[STORE_LINK_FIELD] = store_name
+		
+		si = frappe.get_doc(si_dict)
+
+		if company:
+			si.update({"company": company})
+		
+		si.flags.ignore_mandatory = True
+		si.flags.ignore_validate = True
+		si.flags.ignore_validate_update_after_submit = True
+		
+		# Apply channel-specific cost center to all line items
+		if cost_center:
+			for item in si.items:
+				item.cost_center = cost_center
+		
+		# Note: Bank account from channel mapping is used for financial reporting/reconciliation
+		# It's tracked at the mapping level for identifying which account money flows to
+		si.flags.shopiy_order_json = json.dumps(shopify_order)
+		
+		# Set UOM conversion factor to 1 for all items to avoid validation errors
+		for item in si.items:
+			if not item.conversion_factor or item.conversion_factor == 0:
+				item.conversion_factor = 1.0
+		
+		# Calculate taxes and totals before saving
+		si.calculate_taxes_and_totals()
+		
+		# Save as draft - DO NOT SUBMIT
+		si.save(ignore_permissions=True)
+		
+		# Verify the invoice was saved
+		if not frappe.db.exists("Sales Invoice", si.name):
+			raise Exception(f"Sales Invoice {si.name} was not saved to database")
+		
+		# Reload to get calculated totals
+		si.reload()
+		
+		# Debug grand total comparison
+		shopify_total = flt(shopify_order.get("current_total_price") or shopify_order.get("total_price"))
+		erpnext_total = flt(si.grand_total)
+		
+		frappe.log_error(
+			message=(
+				f"Sales Invoice {si.name} created successfully (DRAFT)\n"
+				f"Shopify order: {shopify_order.get('name')}\n"
+				f"Shopify total: {shopify_total}\n"
+				f"ERPNext grand total: {erpnext_total}\n"
+				f"Difference: {abs(shopify_total - erpnext_total)}\n"
+				f"Taxes included: {shopify_order.get('taxes_included')}\n"
+				f"Total tax: {shopify_order.get('total_tax')}\n"
+				f"Total discounts: {shopify_order.get('total_discounts')}\n"
+				f"Shipping: {shopify_order.get('total_shipping_price_set', {}).get('shop_money', {}).get('amount')}"
+			),
+			title="Invoice Total Comparison"
+		)
+
+		if shopify_order.get("note"):
+			si.add_comment(text=f"Order Note: {shopify_order.get('note')}")
+		
+		# Sync Shopify tags to ERPNext native tagging system
+		if shopify_order.get("tags"):
+			_sync_order_tags(si, shopify_order.get("tags"))
+
+	else:
+		si = frappe.get_doc("Sales Invoice", si)
+
+	return si
 
 
 def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_name=None):
@@ -690,7 +855,7 @@ def cancel_order(payload, request_id=None, store_name=None):
 
 	Updates document with custom field showing order status.
 
-	IF sales invoice / delivery notes are not generated against an order, then cancel it.
+	IF delivery notes are not generated against an invoice, then cancel it.
 	
 	Args:
 	    payload: Shopify order data
@@ -706,25 +871,38 @@ def cancel_order(payload, request_id=None, store_name=None):
 		order_id = order["id"]
 		order_status = order["financial_status"]
 
-		sales_order = get_sales_order(order_id)
+		# Look for Sales Invoice instead of Sales Order
+		sales_invoice = frappe.db.get_value(
+			"Sales Invoice", 
+			filters={ORDER_ID_FIELD: order_id},
+			fieldname=["name", "docstatus"],
+			as_dict=True
+		)
 
-		if not sales_order:
-			create_shopify_log(status="Invalid", message="Sales Order does not exist", store_name=store_name)
+		if not sales_invoice:
+			create_shopify_log(status="Invalid", message="Sales Invoice does not exist", store_name=store_name)
 			return
 
-		sales_invoice = frappe.db.get_value("Sales Invoice", filters={ORDER_ID_FIELD: order_id})
 		delivery_notes = frappe.db.get_list("Delivery Note", filters={ORDER_ID_FIELD: order_id})
 
-		if sales_invoice:
-			frappe.db.set_value("Sales Invoice", sales_invoice, ORDER_STATUS_FIELD, order_status)
+		# Update status on invoice
+		frappe.db.set_value("Sales Invoice", sales_invoice.name, ORDER_STATUS_FIELD, order_status)
 
 		for dn in delivery_notes:
 			frappe.db.set_value("Delivery Note", dn.name, ORDER_STATUS_FIELD, order_status)
 
-		if not sales_invoice and not delivery_notes and sales_order.docstatus == 1:
-			sales_order.cancel()
-		else:
-			frappe.db.set_value("Sales Order", sales_order.name, ORDER_STATUS_FIELD, order_status)
+		# Cancel invoice if it's still draft and no delivery notes exist
+		if not delivery_notes and sales_invoice.docstatus == 0:
+			si_doc = frappe.get_doc("Sales Invoice", sales_invoice.name)
+			si_doc.cancel()
+			frappe.db.commit()
+		elif sales_invoice.docstatus == 1 and not delivery_notes:
+			# If submitted but not delivered, add cancellation comment
+			si_doc = frappe.get_doc("Sales Invoice", sales_invoice.name)
+			si_doc.add_comment(
+				comment_type="Info",
+				text=f"Order cancelled in Shopify. Status: {order_status}"
+			)
 
 	except Exception as e:
 		create_shopify_log(status="Error", exception=e, store_name=store_name)
