@@ -41,7 +41,11 @@ def is_complete_order(shopify_order):
 	is_tiktok_placeholder = "@tiktokw.us" in email.lower() if email else True
 	
 	# Check shipping address has street address
-	shipping = shopify_order.get("shipping_address", {})
+	shipping = shopify_order.get("shipping_address")
+	if shipping is None:
+		# No shipping address at all - incomplete
+		return False
+	
 	has_address = bool(shipping.get("address1"))
 	
 	return not is_tiktok_placeholder and has_address
