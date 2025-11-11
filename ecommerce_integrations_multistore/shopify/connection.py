@@ -123,10 +123,16 @@ def store_request_data() -> None:
 		# Find the store by domain
 		store = get_store_by_domain(shop_domain)
 		if not store:
+			# Try to decode request data for logging
+			try:
+				request_data = json.loads(frappe.request.data) if frappe.request.data else None
+			except:
+				request_data = frappe.request.data.decode('utf-8') if isinstance(frappe.request.data, bytes) else str(frappe.request.data)
+			
 			create_shopify_log(
 				status="Error",
 				message=f"No enabled Shopify Store found for domain: {shop_domain}",
-				request_data=frappe.request.data,
+				request_data=request_data,
 			)
 			frappe.throw(_("Store not found for domain {0}").format(shop_domain))
 
