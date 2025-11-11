@@ -296,3 +296,42 @@ def setup_custom_fields():
 
 	create_custom_fields(custom_fields)
 
+
+@frappe.whitelist()
+def get_series():
+	"""Get naming series for Sales Order, Delivery Note, and Sales Invoice."""
+	return {
+		"sales_order_series": get_series_for_doctype("Sales Order"),
+		"delivery_note_series": get_series_for_doctype("Delivery Note"),
+		"sales_invoice_series": get_series_for_doctype("Sales Invoice"),
+	}
+
+
+def get_series_for_doctype(doctype):
+	"""Get naming series options for a specific doctype."""
+	# Try to get from naming series
+	naming_series = frappe.get_meta(doctype).get_field("naming_series")
+	if naming_series and naming_series.options:
+		return naming_series.options.split("\n")
+	
+	# Try to get from Document Naming Rule
+	naming_rules = frappe.get_all(
+		"Document Naming Rule",
+		filters={"document_type": doctype, "disabled": 0},
+		fields=["prefix"],
+		order_by="priority desc"
+	)
+	
+	if naming_rules:
+		return [rule.prefix for rule in naming_rules if rule.prefix]
+	
+	# Default fallback
+	if doctype == "Sales Order":
+		return ["SO-", "SO-Shopify-"]
+	elif doctype == "Delivery Note":
+		return ["DN-", "DN-Shopify-"]
+	elif doctype == "Sales Invoice":
+		return ["SI-", "SI-Shopify-", "SINV-"]
+	
+	return []
+
