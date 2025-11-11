@@ -276,6 +276,22 @@ def setup_custom_fields():
 				print_hide=1,
 			),
 		],
+		"Ecommerce Integration Log": [
+			dict(
+				fieldname="order_incomplete_reason",
+				label="Order Incomplete Reason",
+				fieldtype="Data",
+				insert_after="status",
+				read_only=1,
+			),
+			dict(
+				fieldname="order_completion_checked_on",
+				label="Order Completion Checked On",
+				fieldtype="Datetime",
+				insert_after="order_incomplete_reason",
+				read_only=1,
+			),
+		],
 	}
 
 	create_custom_fields(custom_fields)

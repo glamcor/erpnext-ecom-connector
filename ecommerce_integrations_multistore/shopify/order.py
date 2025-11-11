@@ -31,6 +31,22 @@ DEFAULT_TAX_FIELDS = {
 }
 
 
+def is_complete_order(shopify_order):
+	"""Check if order has complete customer information (not TikTok placeholder)."""
+	# Check if customer exists and has valid name
+	customer = shopify_order.get("customer", {})
+	email = customer.get("email", "")
+	
+	# TikTok orders have alphanumeric@tiktokw.us pattern
+	is_tiktok_placeholder = "@tiktokw.us" in email.lower() if email else True
+	
+	# Check shipping address has street address
+	shipping = shopify_order.get("shipping_address", {})
+	has_address = bool(shipping.get("address1"))
+	
+	return not is_tiktok_placeholder and has_address
+
+
 def sync_sales_order(payload, request_id=None, store_name=None):
 	"""Sync sales order from Shopify webhook to ERPNext.
 	
@@ -43,10 +59,21 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 	frappe.set_user("Administrator")
 	frappe.flags.request_id = request_id
 
+	# Check if order already exists
 	if frappe.db.get_value("Sales Order", filters={ORDER_ID_FIELD: cstr(order["id"])}):
 		create_shopify_log(
 			status="Invalid", 
 			message="Sales order already exists, not synced",
+			store_name=store_name
+		)
+		return
+	
+	# Check if order is complete
+	if not is_complete_order(order):
+		create_shopify_log(
+			status="Incomplete Order",
+			message=f"Order {order.get('name')} is incomplete (TikTok placeholder or missing address). Waiting for update.",
+			request_data=order,
 			store_name=store_name
 		)
 		return
@@ -90,6 +117,63 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 		create_shopify_log(status="Error", exception=e, rollback=True, store_name=store_name)
 	else:
 		create_shopify_log(status="Success", store_name=store_name)
+
+
+@frappe.whitelist()
+def handle_order_update(payload, request_id=None, store_name=None):
+	"""Handle order update webhook from Shopify.
+	
+	Check if previously incomplete orders are now complete and process them.
+	
+	Args:
+	    payload: Shopify order data
+	    request_id: Integration log ID
+	    store_name: Shopify Store name (multi-store support)
+	"""
+	order = payload
+	frappe.set_user("Administrator")
+	frappe.flags.request_id = request_id
+	
+	order_id = cstr(order["id"])
+	
+	# Check if we already have a Sales Order for this
+	if frappe.db.get_value("Sales Order", filters={ORDER_ID_FIELD: order_id}):
+		# Order already processed, ignore update
+		create_shopify_log(
+			status="Invalid",
+			message="Sales order already exists, update ignored",
+			store_name=store_name
+		)
+		return
+	
+	# Check if we have this order marked as incomplete
+	incomplete_log = frappe.db.get_value(
+		"Ecommerce Integration Log",
+		filters={
+			"method": "ecommerce_integrations_multistore.shopify.order.sync_sales_order",
+			"status": "Incomplete Order",
+			"request_data": ["like", f'%"id": {order_id}%']
+		},
+		fieldname="name"
+	)
+	
+	if incomplete_log and is_complete_order(order):
+		# Order is now complete! Process it
+		frappe.log_error(
+			message=f"Order {order.get('name')} is now complete. Processing...",
+			title="Shopify Order Now Complete"
+		)
+		sync_sales_order(order, request_id, store_name)
+	elif not incomplete_log:
+		# This might be a regular order update, check if we need to sync
+		sync_sales_order(order, request_id, store_name)
+	else:
+		# Still incomplete
+		create_shopify_log(
+			status="Incomplete Order",
+			message=f"Order {order.get('name')} is still incomplete. Waiting for complete customer info.",
+			store_name=store_name
+		)
 
 
 def create_order(order, setting, company=None):
