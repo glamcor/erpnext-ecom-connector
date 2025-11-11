@@ -73,7 +73,19 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 		# Sync items with store context
 		create_items_if_not_exist(order, store_name=store_name)
 
-		create_order(order, store)
+		# Create order and verify it was actually created
+		result = create_order(order, store)
+		
+		# Debug logging
+		frappe.log_error(
+			message=f"create_order result: {result}, Order ID: {order.get('id')}, Order Name: {order.get('name')}",
+			title=f"Shopify Order Creation Debug"
+		)
+		
+		# CRITICAL: Verify order was created
+		if not result:
+			raise Exception(f"Order creation failed - no result returned for Shopify order {order.get('name')}")
+		
 	except Exception as e:
 		create_shopify_log(status="Error", exception=e, rollback=True, store_name=store_name)
 	else:
@@ -92,6 +104,8 @@ def create_order(order, setting, company=None):
 
 		if order.get("fulfillments"):
 			create_delivery_note(order, setting, so)
+	
+	return so  # Return the sales order for verification
 
 
 def create_sales_order(shopify_order, setting, company=None):
@@ -136,18 +150,26 @@ def create_sales_order(shopify_order, setting, company=None):
 			taxes_inclusive=shopify_order.get("taxes_included"),
 			store_name=store_name,
 		)
+		
+		# Debug logging for items
+		frappe.log_error(
+			message=f"Items found: {len(items) if items else 0}, Order: {shopify_order.get('name')}, Line items: {len(shopify_order.get('line_items', []))}",
+			title="Shopify Order Items Debug"
+		)
 
 		if not items:
 			message = (
-				"Following items exists in the shopify order but relevant records were"
-				" not found in the shopify Product master"
+				"No items could be matched in ERPNext for Shopify order {}. "
+				"Line items: {}".format(
+					shopify_order.get('name'),
+					[{"sku": item.get('sku'), "product_id": item.get('product_id'), "title": item.get('title')} 
+					 for item in shopify_order.get('line_items', [])]
+				)
 			)
-			product_not_exists = []  # TODO: fix missing items
-			message += "\n" + ", ".join(product_not_exists)
 
 			create_shopify_log(status="Error", exception=message, rollback=True, store_name=store_name)
-
-			return ""
+			# Raise exception instead of returning empty string
+			raise Exception(message)
 
 		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
 		
@@ -201,6 +223,15 @@ def create_sales_order(shopify_order, setting, company=None):
 		
 		so.save(ignore_permissions=True)
 		so.submit()
+		
+		# Verify the order was saved
+		if not frappe.db.exists("Sales Order", so.name):
+			raise Exception(f"Sales Order {so.name} was not saved to database")
+		
+		frappe.log_error(
+			message=f"Sales Order {so.name} created and submitted successfully for Shopify order {shopify_order.get('name')}",
+			title="Sales Order Creation Success"
+		)
 
 		if shopify_order.get("note"):
 			so.add_comment(text=f"Order Note: {shopify_order.get('note')}")
@@ -241,15 +272,37 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 			# This handles Duoplane, draft orders, and custom line items
 			sku = shopify_item.get("sku")
 			
-			# Try multiple fields where SKU might be stored
-			item_code = (
-				frappe.db.get_value("Item", {"item_code": sku}) or
-				frappe.db.get_value("Item", {"sku": sku}) or  # Variant SKU field
-				frappe.db.get_value("Item", {"item_name": sku})
+			# Debug log what we're searching for
+			frappe.log_error(
+				message=f"Searching for SKU: {sku}, product_exists: {shopify_item.get('product_exists')}, product_id: {shopify_item.get('product_id')}",
+				title="Shopify SKU Lookup Debug"
 			)
+			
+			# Try multiple fields where SKU might be stored
+			# First try exact item_code match
+			item_code = frappe.db.get_value("Item", {"item_code": sku, "disabled": 0})
+			
+			# Then try SKU field (for variants)
+			if not item_code:
+				item_code = frappe.db.get_value("Item", {"sku": sku, "disabled": 0})
+			
+			# Then try item name
+			if not item_code:
+				item_code = frappe.db.get_value("Item", {"item_name": sku, "disabled": 0})
+			
+			# Log result
+			if item_code:
+				frappe.log_error(
+					message=f"SKU {sku} matched to item {item_code}",
+					title="Shopify SKU Match Success"
+				)
 		
 		if not item_code:
 			# Item not found - track for error reporting
+			frappe.log_error(
+				message=f"Item not found - SKU: {shopify_item.get('sku')}, Product ID: {shopify_item.get('product_id')}, Title: {shopify_item.get('title')}",
+				title="Shopify Item Match Failed"
+			)
 			all_product_exists = False
 			product_not_exists.append(
 				{"title": shopify_item.get("title"), "sku": shopify_item.get("sku"), ORDER_ID_FIELD: shopify_item.get("id")}
