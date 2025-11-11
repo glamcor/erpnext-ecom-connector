@@ -228,9 +228,23 @@ def create_sales_order(shopify_order, setting, company=None):
 		if not frappe.db.exists("Sales Order", so.name):
 			raise Exception(f"Sales Order {so.name} was not saved to database")
 		
+		# Debug grand total comparison
+		shopify_total = flt(shopify_order.get("current_total_price") or shopify_order.get("total_price"))
+		erpnext_total = flt(so.grand_total)
+		
 		frappe.log_error(
-			message=f"Sales Order {so.name} created and submitted successfully for Shopify order {shopify_order.get('name')}",
-			title="Sales Order Creation Success"
+			message=(
+				f"Sales Order {so.name} created successfully\n"
+				f"Shopify order: {shopify_order.get('name')}\n"
+				f"Shopify total: {shopify_total}\n"
+				f"ERPNext grand total: {erpnext_total}\n"
+				f"Difference: {abs(shopify_total - erpnext_total)}\n"
+				f"Taxes included: {shopify_order.get('taxes_included')}\n"
+				f"Total tax: {shopify_order.get('total_tax')}\n"
+				f"Total discounts: {shopify_order.get('total_discounts')}\n"
+				f"Shipping: {shopify_order.get('total_shipping_price_set', {}).get('shop_money', {}).get('amount')}"
+			),
+			title="Order Total Comparison"
 		)
 
 		if shopify_order.get("note"):
@@ -347,15 +361,20 @@ def _get_item_price(line_item, taxes_inclusive: bool) -> float:
 
 	# remove line item level discounts
 	total_discount = _get_total_discount(line_item)
+	discount_per_item = total_discount / qty if qty else 0
 
 	if not taxes_inclusive:
-		return price - (total_discount / qty)
+		return price - discount_per_item
 
+	# For tax-inclusive pricing, we need to remove tax from the price
 	total_taxes = 0.0
 	for tax in line_item.get("tax_lines"):
 		total_taxes += flt(tax.get("price"))
+	
+	tax_per_item = total_taxes / qty if qty else 0
 
-	return price - (total_taxes + total_discount) / qty
+	# Return price minus tax and discount per item
+	return price - tax_per_item - discount_per_item
 
 
 def _get_total_discount(line_item) -> float:
