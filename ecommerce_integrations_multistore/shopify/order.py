@@ -508,11 +508,96 @@ def create_sales_invoice(shopify_order, setting, company=None):
 		# Sync Shopify tags to ERPNext native tagging system
 		if shopify_order.get("tags"):
 			_sync_order_tags(si, shopify_order.get("tags"))
+		
+		# Assign power supplies based on shipping country
+		assign_power_supplies(si, shopify_order)
+		
+		# Recalculate totals after power supply assignment
+		si.calculate_taxes_and_totals()
+		si.save(ignore_permissions=True)
 
 	else:
 		si = frappe.get_doc("Sales Invoice", si)
 
 	return si
+
+
+def assign_power_supplies(invoice, shopify_order):
+	"""Assign power supplies to invoice items based on shipping country.
+	
+	Args:
+	    invoice: Sales Invoice document
+	    shopify_order: Shopify order data
+	"""
+	shipping_address = shopify_order.get("shipping_address", {})
+	country_code = shipping_address.get("country_code")
+	
+	if not country_code:
+		return
+	
+	# Get country name from code
+	country = frappe.db.get_value("Country", {"code": country_code}, "name")
+	if not country:
+		frappe.log_error(
+			message=f"Country not found for code: {country_code}",
+			title="Power Supply Assignment Warning"
+		)
+		return
+	
+	# Track items that need power supplies
+	power_supplies_to_add = []
+	items_to_update = []
+	
+	for item in invoice.items:
+		# Check if this item has a power supply mapping
+		power_supply_item = frappe.db.get_value(
+			"Power Supply Mapping",
+			{
+				"bundle_item": item.item_code,
+				"country": country,
+				"is_active": 1
+			},
+			"power_supply_item"
+		)
+		
+		if power_supply_item:
+			# Check if power supply is already in the invoice
+			ps_exists = False
+			for existing_item in invoice.items:
+				if existing_item.item_code == power_supply_item and existing_item.idx != item.idx:
+					# Power supply already exists, just update quantity
+					existing_item.qty += item.qty
+					ps_exists = True
+					break
+			
+			if not ps_exists:
+				# Need to add power supply
+				power_supplies_to_add.append({
+					"item_code": power_supply_item,
+					"qty": item.qty,
+					"reference_item": item.item_code
+				})
+	
+	# Add power supplies to invoice
+	for ps_data in power_supplies_to_add:
+		ps_item = frappe.get_doc("Item", ps_data["item_code"])
+		
+		invoice.append("items", {
+			"item_code": ps_data["item_code"],
+			"item_name": ps_item.item_name,
+			"description": ps_item.description or ps_item.item_name,
+			"qty": ps_data["qty"],
+			"uom": ps_item.stock_uom,
+			"conversion_factor": 1.0,
+			"rate": ps_item.standard_rate or 0,
+			"income_account": _get_income_account(ps_item.name, invoice.company)
+		})
+		
+		# Log the addition
+		frappe.log_error(
+			message=f"Added power supply {ps_data['item_code']} (qty: {ps_data['qty']}) for {ps_data['reference_item']} to {country}",
+			title="Power Supply Assignment"
+		)
 
 
 def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_name=None):
