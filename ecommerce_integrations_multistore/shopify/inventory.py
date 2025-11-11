@@ -39,6 +39,7 @@ def update_inventory_on_shopify() -> None:
 		upload_inventory_data_to_shopify(inventory_levels, warehous_map)
 
 
+@frappe.whitelist()
 def update_inventory_for_store(store_name: str) -> None:
 	"""Per-store worker: upload stock levels from ERPNext to Shopify for a specific store.
 	

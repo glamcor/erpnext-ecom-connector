@@ -3,6 +3,19 @@
 
 frappe.ui.form.on("Shopify Store", {
 	onload: function (frm) {
+		// Fetch naming series options for dropdowns
+		frappe.call({
+			method: "ecommerce_integrations_multistore.utils.naming_series.get_series",
+			callback: function (r) {
+				if (r.message) {
+					// Set options for series fields
+					frm.set_df_property("sales_order_series", "options", r.message.sales_order_series);
+					frm.set_df_property("sales_invoice_series", "options", r.message.sales_invoice_series);
+					frm.set_df_property("delivery_note_series", "options", r.message.delivery_note_series);
+				}
+			},
+		});
+
 		frm.set_query("customer_group", function () {
 			return {
 				filters: {
@@ -11,7 +24,7 @@ frappe.ui.form.on("Shopify Store", {
 			};
 		});
 
-		// Naming series
+		// Fetch default price list
 		frappe.db.get_single_value("Selling Settings", "selling_price_list").then((price_list) => {
 			frm.add_fetch("company", "cost_center", "cost_center");
 			frm.add_fetch("company", "default_cash_account", "cash_bank_account");

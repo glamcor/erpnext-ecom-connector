@@ -8,7 +8,7 @@ app_icon = "octicon octicon-file-directory"
 app_color = "grey"
 app_email = "support@glamcor.com"
 app_license = "GNU GPL v3.0"
-required_apps = ["frappe/erpnext"]
+required_apps = ["erpnext"]
 
 # Includes in <head>
 # ------------------

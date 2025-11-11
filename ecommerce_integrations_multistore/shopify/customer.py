@@ -57,11 +57,48 @@ class ShopifyCustomer(EcommerceCustomer):
 			customer_name = customer.get("email")
 
 		customer_group = self.setting.customer_group
-		super().sync_customer(customer_name, customer_group)
+		
+		# Try to find existing customer by email first (if enabled in settings)
+		email = customer.get("email")
+		existing_customer = None
+		
+		if email and getattr(self.setting, "match_customers_by_email", True):
+			# Check if customer exists with this email
+			existing_customer = frappe.db.get_value(
+				"Customer", 
+				{"email_id": email}, 
+				["name", self.customer_id_field],
+				as_dict=True
+			)
+			
+			if existing_customer and not existing_customer.get(self.customer_id_field):
+				# Customer exists but doesn't have Shopify ID - update it
+				frappe.db.set_value(
+					"Customer", 
+					existing_customer.name, 
+					self.customer_id_field, 
+					self.customer_id
+				)
+				customer_doc = frappe.get_doc("Customer", existing_customer.name)
+			elif existing_customer:
+				# Customer exists and has Shopify ID
+				customer_doc = frappe.get_doc("Customer", existing_customer.name)
+			else:
+				# No existing customer found by email, create new
+				customer_doc = super().sync_customer(customer_name, customer_group)
+		else:
+			# No email provided, use standard sync
+			customer_doc = super().sync_customer(customer_name, customer_group)
 
-		# For multi-store, add entry to child table
-		if self.store_name and self.erpnext_customer_name:
-			self._add_store_link()
+		# For multi-store, add entry to child table if not already linked
+		if self.store_name and customer_doc:
+			# Check if this store link already exists
+			link_exists = frappe.db.exists(
+				"Shopify Customer Store Link",
+				{"store": self.store_name, "shopify_customer_id": self.customer_id}
+			)
+			if not link_exists:
+				self._add_store_link_direct(customer_doc)
 
 		billing_address = customer.get("billing_address", {}) or customer.get("default_address")
 		shipping_address = customer.get("shipping_address", {})
@@ -77,9 +114,8 @@ class ShopifyCustomer(EcommerceCustomer):
 
 		self.create_customer_contact(customer)
 
-	def _add_store_link(self) -> None:
-		"""Add customer-store link to multi-store child table."""
-		customer_doc = frappe.get_doc("Customer", self.erpnext_customer_name)
+	def _add_store_link_direct(self, customer_doc) -> None:
+		"""Add customer-store link to multi-store child table using customer doc directly."""
 		
 		# Check if link already exists
 		existing = False

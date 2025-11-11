@@ -22,7 +22,13 @@ class EcommerceCustomer:
 			raise frappe.DoesNotExistError()
 
 	def sync_customer(self, customer_name: str, customer_group: str) -> None:
-		"""Create customer in ERPNext if one does not exist already."""
+		"""Create customer in ERPNext if one does not exist already.
+		
+		Returns the customer document (newly created or existing).
+		"""
+		if frappe.db.exists("Customer", self.customer_id):
+			return frappe.get_doc("Customer", self.customer_id)
+			
 		customer = frappe.get_doc(
 			{
 				"doctype": "Customer",
@@ -37,6 +43,7 @@ class EcommerceCustomer:
 
 		customer.flags.ignore_mandatory = True
 		customer.insert(ignore_permissions=True)
+		return customer
 
 	def get_customer_address_doc(self, address_type: str):
 		try:

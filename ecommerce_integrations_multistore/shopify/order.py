@@ -73,7 +73,19 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 		# Sync items with store context
 		create_items_if_not_exist(order, store_name=store_name)
 
-		create_order(order, store)
+		# Create order and verify it was actually created
+		result = create_order(order, store)
+		
+		# Debug logging
+		frappe.log_error(
+			message=f"create_order result: {result}, Order ID: {order.get('id')}, Order Name: {order.get('name')}",
+			title=f"Shopify Order Creation Debug"
+		)
+		
+		# CRITICAL: Verify order was created
+		if not result:
+			raise Exception(f"Order creation failed - no result returned for Shopify order {order.get('name')}")
+		
 	except Exception as e:
 		create_shopify_log(status="Error", exception=e, rollback=True, store_name=store_name)
 	else:
@@ -92,6 +104,8 @@ def create_order(order, setting, company=None):
 
 		if order.get("fulfillments"):
 			create_delivery_note(order, setting, so)
+	
+	return so  # Return the sales order for verification
 
 
 def create_sales_order(shopify_order, setting, company=None):
@@ -136,20 +150,34 @@ def create_sales_order(shopify_order, setting, company=None):
 			taxes_inclusive=shopify_order.get("taxes_included"),
 			store_name=store_name,
 		)
+		
+		# Debug logging for items
+		frappe.log_error(
+			message=f"Items found: {len(items) if items else 0}, Order: {shopify_order.get('name')}, Line items: {len(shopify_order.get('line_items', []))}",
+			title="Shopify Order Items Debug"
+		)
 
 		if not items:
 			message = (
-				"Following items exists in the shopify order but relevant records were"
-				" not found in the shopify Product master"
+				"No items could be matched in ERPNext for Shopify order {}. "
+				"Line items: {}".format(
+					shopify_order.get('name'),
+					[{"sku": item.get('sku'), "product_id": item.get('product_id'), "title": item.get('title')} 
+					 for item in shopify_order.get('line_items', [])]
+				)
 			)
-			product_not_exists = []  # TODO: fix missing items
-			message += "\n" + ", ".join(product_not_exists)
 
 			create_shopify_log(status="Error", exception=message, rollback=True, store_name=store_name)
-
-			return ""
+			# Raise exception instead of returning empty string
+			raise Exception(message)
 
 		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
+		
+		# Get cost center and bank account based on sales channel
+		cost_center, cash_bank_account = _get_channel_financials(
+			shopify_order, setting
+		)
+		
 		so_dict = {
 			"doctype": "Sales Order",
 			"naming_series": setting.sales_order_series or "SO-Shopify-",
@@ -174,13 +202,63 @@ def create_sales_order(shopify_order, setting, company=None):
 
 		if company:
 			so.update({"company": company, "status": "Draft"})
+		
 		so.flags.ignore_mandatory = True
+		so.flags.ignore_validate = True
+		so.flags.ignore_validate_update_after_submit = True
+		
+		# Apply channel-specific cost center to all line items
+		if cost_center:
+			for item in so.items:
+				item.cost_center = cost_center
+		
+		# Note: Bank account from channel mapping is used for financial reporting/reconciliation
+		# It's tracked at the mapping level for identifying which account money flows to
 		so.flags.shopiy_order_json = json.dumps(shopify_order)
+		
+		# Set UOM conversion factor to 1 for all items to avoid validation errors
+		for item in so.items:
+			if not item.conversion_factor or item.conversion_factor == 0:
+				item.conversion_factor = 1.0
+		
+		# Calculate taxes and totals before saving
+		so.calculate_taxes_and_totals()
+		
 		so.save(ignore_permissions=True)
 		so.submit()
+		
+		# Verify the order was saved
+		if not frappe.db.exists("Sales Order", so.name):
+			raise Exception(f"Sales Order {so.name} was not saved to database")
+		
+		# Reload to get calculated totals
+		so.reload()
+		
+		# Debug grand total comparison
+		shopify_total = flt(shopify_order.get("current_total_price") or shopify_order.get("total_price"))
+		erpnext_total = flt(so.grand_total)
+		
+		frappe.log_error(
+			message=(
+				f"Sales Order {so.name} created successfully\n"
+				f"Shopify order: {shopify_order.get('name')}\n"
+				f"Shopify total: {shopify_total}\n"
+				f"ERPNext grand total: {erpnext_total}\n"
+				f"Difference: {abs(shopify_total - erpnext_total)}\n"
+				f"Taxes included: {shopify_order.get('taxes_included')}\n"
+				f"Total tax: {shopify_order.get('total_tax')}\n"
+				f"Total discounts: {shopify_order.get('total_discounts')}\n"
+				f"Shipping: {shopify_order.get('total_shipping_price_set', {}).get('shop_money', {}).get('amount')}"
+			),
+			title="Order Total Comparison"
+		)
 
 		if shopify_order.get("note"):
 			so.add_comment(text=f"Order Note: {shopify_order.get('note')}")
+		
+		# Sync Shopify tags to ERPNext native tagging system
+		if shopify_order.get("tags"):
+			_sync_order_tags(so, shopify_order.get("tags"))
 
 	else:
 		so = frappe.get_doc("Sales Order", so)
@@ -203,31 +281,82 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 	product_not_exists = []
 
 	for shopify_item in order_items:
-		if not shopify_item.get("product_exists"):
+		item_code = None
+		
+		# Try to get item code even if product_exists is false
+		# For Duoplane and similar integrations, product_id might be null but SKU exists
+		if shopify_item.get("product_exists"):
+			item_code = get_item_code(shopify_item, store_name=store_name)
+		
+		# If standard lookup failed but we have a SKU, try direct ERPNext lookup
+		if not item_code and shopify_item.get("sku"):
+			# Product doesn't exist in Shopify catalog but has SKU - try to match by SKU
+			# This handles Duoplane, draft orders, and custom line items
+			sku = shopify_item.get("sku")
+			
+			# Debug log what we're searching for
+			frappe.log_error(
+				message=f"Direct SKU lookup: {sku}, product_exists: {shopify_item.get('product_exists')}, product_id: {shopify_item.get('product_id')}",
+				title="Shopify SKU Lookup Debug"
+			)
+			
+			# Try multiple fields where SKU might be stored
+			# First try exact item_code match
+			item_code = frappe.db.get_value("Item", {"item_code": sku, "disabled": 0})
+			
+			# Then try SKU field (for variants) - only if the field exists
+			if not item_code and frappe.db.has_column("Item", "sku"):
+				item_code = frappe.db.get_value("Item", {"sku": sku, "disabled": 0})
+			
+			# Then try barcode field
+			if not item_code:
+				item_code = frappe.db.get_value("Item Barcode", {"barcode": sku}, "parent")
+			
+			# Then try item name (less common)
+			if not item_code:
+				item_code = frappe.db.get_value("Item", {"item_name": sku, "disabled": 0})
+			
+			# Log result
+			if item_code:
+				frappe.log_error(
+					message=f"SKU {sku} matched to item {item_code}",
+					title="Shopify SKU Match Success"
+				)
+		
+		if not item_code:
+			# Item not found - track for error reporting
+			frappe.log_error(
+				message=f"Item not found - SKU: {shopify_item.get('sku')}, Product ID: {shopify_item.get('product_id')}, Title: {shopify_item.get('title')}",
+				title="Shopify Item Match Failed"
+			)
 			all_product_exists = False
 			product_not_exists.append(
-				{"title": shopify_item.get("title"), ORDER_ID_FIELD: shopify_item.get("id")}
+				{"title": shopify_item.get("title"), "sku": shopify_item.get("sku"), ORDER_ID_FIELD: shopify_item.get("id")}
 			)
 			continue
-
-		if all_product_exists:
-			item_code = get_item_code(shopify_item, store_name=store_name)
-			items.append(
-				{
-					"item_code": item_code,
-					"item_name": shopify_item.get("name"),
-					"rate": _get_item_price(shopify_item, taxes_inclusive),
-					"delivery_date": delivery_date,
-					"qty": shopify_item.get("quantity"),
-					"stock_uom": shopify_item.get("uom") or "Nos",
-					"warehouse": setting.warehouse,
-					ORDER_ITEM_DISCOUNT_FIELD: (
-						_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
-					),
-				}
-			)
-		else:
-			items = []
+		
+		# Get income account from Item, Item Group, or Company
+		income_account = _get_income_account(item_code, setting.company)
+		
+		# Build item dict
+		item_dict = {
+			"item_code": item_code,
+			"item_name": shopify_item.get("name") or shopify_item.get("title"),
+			"rate": _get_item_price(shopify_item, taxes_inclusive),
+			"delivery_date": delivery_date,
+			"qty": shopify_item.get("quantity"),
+			"stock_uom": shopify_item.get("uom") or "Nos",
+			"warehouse": setting.warehouse,
+			ORDER_ITEM_DISCOUNT_FIELD: (
+				_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
+			),
+		}
+		
+		# Only add income_account if we found one (optional for ignore_validate mode)
+		if income_account:
+			item_dict["income_account"] = income_account
+		
+		items.append(item_dict)
 
 	return items
 
@@ -265,6 +394,7 @@ def get_order_taxes(shopify_order, setting, items, store_name=None):
 	"""
 	taxes = []
 	line_items = shopify_order.get("line_items")
+	taxes_included = shopify_order.get("taxes_included", False)
 
 	for line_item in line_items:
 		item_code = get_item_code(line_item, store_name=store_name)
@@ -278,7 +408,7 @@ def get_order_taxes(shopify_order, setting, items, store_name=None):
 						or f"{tax.get('title')} - {tax.get('rate') * 100.0:.2f}%"
 					),
 					"tax_amount": tax.get("price"),
-					"included_in_print_rate": 0,
+					"included_in_print_rate": 1 if taxes_included else 0,
 					"cost_center": setting.cost_center,
 					"item_wise_tax_detail": {item_code: [flt(tax.get("rate")) * 100, flt(tax.get("price"))]},
 					"dont_recompute_tax": 1,
@@ -450,6 +580,7 @@ def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxe
 						or f"{tax.get('title')} - {tax.get('rate') * 100.0:.2f}%"
 					),
 					"tax_amount": tax["price"],
+					"included_in_print_rate": 1 if taxes_inclusive else 0,
 					"cost_center": setting.cost_center,
 					"item_wise_tax_detail": {
 						setting.shipping_item: [flt(tax.get("rate")) * 100, flt(tax.get("price"))]
@@ -537,6 +668,7 @@ def sync_old_orders():
 	shopify_setting.save()
 
 
+@frappe.whitelist()
 @temp_shopify_session
 def sync_old_orders_for_store(store_name: str):
 	"""Per-store worker: sync old orders for a specific store.
@@ -564,6 +696,102 @@ def sync_old_orders_for_store(store_name: str):
 	store = frappe.get_doc(STORE_DOCTYPE, store_name)
 	store.sync_old_orders = 0
 	store.save()
+
+
+def _get_income_account(item_code: str, company: str) -> str:
+	"""Get income account for an item, falling back through Item → Item Group → Company.
+	
+	Args:
+	    item_code: ERPNext Item code
+	    company: Company name
+	
+	Returns:
+	    Income account name
+	"""
+	# Try to get from Item's company-specific account
+	item_doc = frappe.get_cached_doc("Item", item_code)
+	
+	# Check item's income account for this company
+	for account in item_doc.get("item_defaults", []):
+		if account.company == company and account.income_account:
+			return account.income_account
+	
+	# Fall back to Item Group's default income account
+	if item_doc.item_group:
+		item_group_doc = frappe.get_cached_doc("Item Group", item_doc.item_group)
+		accounts = item_group_doc.get("accounts") or []
+		for account in accounts:
+			if account.company == company and account.income_account:
+				return account.income_account
+	
+	# Fall back to Company's default income account
+	company_doc = frappe.get_cached_doc("Company", company)
+	if company_doc.default_income_account:
+		return company_doc.default_income_account
+	
+	# Last resort - get any income account for this company
+	income_account = frappe.db.get_value(
+		"Account",
+		{
+			"company": company,
+			"account_type": "Income Account",
+			"is_group": 0
+		},
+		"name"
+	)
+	
+	return income_account or None
+
+
+def _get_channel_financials(shopify_order: dict, setting) -> tuple[str | None, str | None]:
+	"""Get cost center and bank account based on order's sales channel.
+	
+	Args:
+	    shopify_order: Shopify order data dict
+	    setting: Shopify Store or Setting doc
+	
+	Returns:
+	    tuple: (cost_center, cash_bank_account) or (None, None) if using defaults
+	"""
+	source_name = shopify_order.get("source_name", "").lower().strip()
+	
+	if not source_name or not hasattr(setting, "sales_channel_mapping"):
+		# No source or no mapping table - use defaults
+		return None, None
+	
+	# Look up in sales channel mapping table
+	for mapping in setting.sales_channel_mapping:
+		if mapping.sales_channel_name.lower().strip() == source_name:
+			return mapping.cost_center, mapping.cash_bank_account
+	
+	# No mapping found - use defaults
+	return None, None
+
+
+def _sync_order_tags(sales_order, shopify_tags: str) -> None:
+	"""Parse Shopify tags and add them to Sales Order using ERPNext native tagging.
+	
+	Args:
+	    sales_order: ERPNext Sales Order document
+	    shopify_tags: Comma-separated string of tags from Shopify (e.g., "wholesale, priority")
+	"""
+	if not shopify_tags or not isinstance(shopify_tags, str):
+		return
+	
+	# Parse comma-separated tags and clean them
+	tags = [tag.strip() for tag in shopify_tags.split(",") if tag.strip()]
+	
+	# Add each tag using ERPNext's native tagging system
+	from frappe.desk.doctype.tag.tag import add_tag
+	for tag in tags:
+		try:
+			add_tag(tag, "Sales Order", sales_order.name)
+		except Exception as e:
+			# Don't fail the order sync if tagging fails
+			frappe.log_error(
+				message=f"Failed to add tag '{tag}' to Sales Order {sales_order.name}: {str(e)}",
+				title="Shopify Tag Sync Error"
+			)
 
 
 def _fetch_old_orders(from_time, to_time):

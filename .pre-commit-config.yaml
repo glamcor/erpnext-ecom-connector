@@ -8,7 +8,7 @@ repos:
     rev: v4.3.0
     hooks:
       - id: trailing-whitespace
-        files: "ecommerce_integrations.*"
+        files: "ecommerce_integrations_multistore.*"
         exclude: ".*json$|.*txt$|.*csv|.*md|.*svg"
       - id: check-yaml
       - id: no-commit-to-branch
@@ -28,11 +28,11 @@ repos:
         # Ignore any files that might contain jinja / bundles
         exclude: |
             (?x)^(
-                ecommerce_integrations/public/dist/.*|
+                ecommerce_integrations_multistore/public/dist/.*|
                 cypress/.*|
                 .*node_modules.*|
                 .*boilerplate.*|
-                ecommerce_integrations/templates/includes/.*
+                ecommerce_integrations_multistore/templates/includes/.*
             )$
 
   - repo: https://github.com/pre-commit/mirrors-eslint
@@ -44,11 +44,11 @@ repos:
         # Ignore any files that might contain jinja / bundles
         exclude: |
             (?x)^(
-                ecommerce_integrations/public/dist/.*|
+                ecommerce_integrations_multistore/public/dist/.*|
                 cypress/.*|
                 .*node_modules.*|
                 .*boilerplate.*|
-                ecommerce_integrations/templates/includes/.*
+                ecommerce_integrations_multistore/templates/includes/.*
             )$
 
   - repo: https://github.com/astral-sh/ruff-pre-commit

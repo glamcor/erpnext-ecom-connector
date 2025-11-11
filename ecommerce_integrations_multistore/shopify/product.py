@@ -6,7 +6,7 @@ from frappe.utils import cint, cstr
 from frappe.utils.nestedset import get_root_of
 from shopify.resources import Product, Variant
 
-from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.common.doctype.ecommerce_item import ecommerce_item
 from ecommerce_integrations_multistore.shopify.connection import temp_shopify_session
 from ecommerce_integrations_multistore.shopify.constants import (
 	ITEM_SELLING_RATE_FIELD,

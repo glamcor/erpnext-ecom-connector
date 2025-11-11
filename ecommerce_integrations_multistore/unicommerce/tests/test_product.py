@@ -1,7 +1,7 @@
 import frappe
 import responses
 
-from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.common.doctype.ecommerce_item import ecommerce_item
 from ecommerce_integrations_multistore.unicommerce.constants import MODULE_NAME
 from ecommerce_integrations_multistore.unicommerce.product import (
 	_build_unicommerce_item,

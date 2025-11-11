@@ -5,7 +5,7 @@ import unittest
 
 import frappe
 
-from ecommerce_integrations_multistore.ecommerce_integrations_multistore.doctype.ecommerce_item import ecommerce_item
+from ecommerce_integrations_multistore.common.doctype.ecommerce_item import ecommerce_item
 
 
 class TestEcommerceItem(unittest.TestCase):
