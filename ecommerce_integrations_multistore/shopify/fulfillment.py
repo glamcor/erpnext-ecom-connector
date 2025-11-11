@@ -99,6 +99,9 @@ def create_delivery_note(shopify_order, setting, si, store_name=None):
 
 			if shopify_order.get("note"):
 				dn.add_comment(text=f"Order Note: {shopify_order.get('note')}")
+			
+			# Send to ShipStation if integration is installed
+			send_to_shipstation(dn, setting)
 
 
 def get_fulfillment_items(dn_items, fulfillment_items, location_id=None, setting=None, store_name=None):
@@ -141,3 +144,54 @@ def get_fulfillment_items(dn_items, fulfillment_items, location_id=None, setting
 			final_items.append(dn_item.update({"qty": shopify_item.get("quantity"), "warehouse": warehouse}))
 
 	return final_items
+
+
+def send_to_shipstation(delivery_note, setting):
+	"""Send Delivery Note to ShipStation if integration is installed.
+	
+	Args:
+	    delivery_note: Delivery Note document
+	    setting: Shopify Store settings
+	"""
+	try:
+		# Check if ShipStation integration is installed
+		if frappe.db.exists("Module Def", "ShipStation Integration"):
+			# Import ShipStation functions if available
+			from shipstation_integration.api import send_order_to_shipstation
+			
+			# Check if ShipStation is configured for this store
+			if hasattr(setting, 'shipstation_api_key') and setting.shipstation_api_key:
+				# Send the delivery note to ShipStation
+				result = send_order_to_shipstation(delivery_note.name)
+				
+				if result.get("success"):
+					delivery_note.add_comment(
+						comment_type="Info",
+						text=f"Order sent to ShipStation. Order ID: {result.get('order_id')}"
+					)
+					frappe.log_error(
+						message=f"Delivery Note {delivery_note.name} sent to ShipStation",
+						title="ShipStation Integration Success"
+					)
+				else:
+					frappe.log_error(
+						message=f"Failed to send {delivery_note.name} to ShipStation: {result.get('error')}",
+						title="ShipStation Integration Error"
+					)
+			else:
+				frappe.log_error(
+					message="ShipStation API key not configured for this store",
+					title="ShipStation Configuration Missing"
+				)
+	except ImportError:
+		# ShipStation integration not installed
+		frappe.log_error(
+			message="ShipStation Integration app is not installed",
+			title="ShipStation Integration Not Found"
+		)
+	except Exception as e:
+		# Log any other errors but don't fail the delivery note creation
+		frappe.log_error(
+			message=f"Error sending to ShipStation: {str(e)}",
+			title="ShipStation Integration Error"
+		)

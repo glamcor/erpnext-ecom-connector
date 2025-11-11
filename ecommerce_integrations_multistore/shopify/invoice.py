@@ -62,6 +62,99 @@ def prepare_sales_invoice(payload, request_id=None, store_name=None):
 		create_shopify_log(status="Error", exception=e, rollback=True, store_name=store_name)
 
 
+def auto_create_delivery_note(doc, method=None):
+	"""Automatically create Delivery Note when Sales Invoice is submitted.
+	
+	This is called via hooks when a Sales Invoice is submitted.
+	Only creates DN for invoices that originated from Shopify.
+	
+	Args:
+	    doc: Sales Invoice document
+	    method: Hook method name (not used)
+	"""
+	# Check if this is a Shopify invoice
+	if not doc.get(ORDER_ID_FIELD):
+		return
+	
+	# Check if delivery note already exists
+	existing_dn = frappe.db.get_value(
+		"Delivery Note",
+		{ORDER_ID_FIELD: doc.get(ORDER_ID_FIELD)},
+		"name"
+	)
+	
+	if existing_dn:
+		# Delivery Note already exists
+		return
+	
+	try:
+		# Import here to avoid circular dependency
+		from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_delivery_note
+		
+		# Get store settings
+		store_name = doc.get(STORE_LINK_FIELD)
+		if store_name:
+			setting = frappe.get_doc(STORE_DOCTYPE, store_name)
+		else:
+			# Try to find store from Shopify order ID
+			store_name = frappe.db.get_value(
+				"Ecommerce Integration Log",
+				{
+					"request_data": ["like", f'%"id": {doc.get(ORDER_ID_FIELD)}%'],
+					"method": ["like", "%sync_sales_order%"],
+					"status": "Success"
+				},
+				"shopify_store"
+			)
+			if store_name:
+				setting = frappe.get_doc(STORE_DOCTYPE, store_name)
+			else:
+				# Can't determine store, skip
+				return
+		
+		# Check if auto-create is enabled
+		if not cint(setting.sync_delivery_note):
+			return
+		
+		# Create delivery note
+		dn = make_delivery_note(doc.name)
+		
+		# Copy Shopify fields
+		dn.set(ORDER_ID_FIELD, doc.get(ORDER_ID_FIELD))
+		dn.set(ORDER_NUMBER_FIELD, doc.get(ORDER_NUMBER_FIELD))
+		if store_name:
+			dn.set(STORE_LINK_FIELD, store_name)
+		
+		dn.naming_series = setting.delivery_note_series or "DN-Shopify-"
+		dn.flags.ignore_mandatory = True
+		
+		# Save and submit
+		dn.save(ignore_permissions=True)
+		dn.submit()
+		
+		# Add comment to invoice
+		doc.add_comment(
+			comment_type="Info",
+			text=f"Delivery Note {dn.name} created automatically"
+		)
+		
+		frappe.log_error(
+			message=f"Auto-created Delivery Note {dn.name} for Sales Invoice {doc.name}",
+			title="Shopify Auto Delivery Note"
+		)
+		
+		# Send to ShipStation if configured
+		from ecommerce_integrations_multistore.shopify.fulfillment import send_to_shipstation
+		send_to_shipstation(dn, setting)
+		
+	except Exception as e:
+		# Log error but don't fail the invoice submission
+		frappe.log_error(
+			message=f"Failed to auto-create delivery note for invoice {doc.name}: {str(e)}",
+			title="Auto Delivery Note Error"
+		)
+
+
 def create_sales_invoice(shopify_order, setting, so, store_name=None):
 	"""Create Sales Invoice from Shopify order.
 	

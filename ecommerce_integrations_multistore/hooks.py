@@ -127,7 +127,10 @@ doc_events = {
 	"Item Price": {"on_change": "ecommerce_integrations_multistore.utils.price_list.discard_item_prices"},
 	"Pick List": {"validate": "ecommerce_integrations_multistore.unicommerce.pick_list.validate"},
 	"Sales Invoice": {
-		"on_submit": "ecommerce_integrations_multistore.unicommerce.invoice.on_submit",
+		"on_submit": [
+			"ecommerce_integrations_multistore.unicommerce.invoice.on_submit",
+			"ecommerce_integrations_multistore.shopify.invoice.auto_create_delivery_note",
+		],
 		"on_cancel": "ecommerce_integrations_multistore.unicommerce.invoice.on_cancel",
 	},
 }
