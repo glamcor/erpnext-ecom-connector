@@ -141,6 +141,13 @@
    "options": "Customer Group"
   },
   {
+   "default": "1",
+   "fieldname": "match_customers_by_email",
+   "fieldtype": "Check",
+   "label": "Match Customers by Email",
+   "description": "When enabled, the connector will first try to match existing customers by email before creating new ones. This prevents duplicate customers when they already exist in ERPNext."
+  },
+  {
    "description": "If individual warehouse are not mapped, the default warehouse is considered for transactions.",
    "fieldname": "warehouse",
    "fieldtype": "Link",
