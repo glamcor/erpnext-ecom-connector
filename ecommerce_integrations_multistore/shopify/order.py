@@ -267,14 +267,16 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 		# For Duoplane and similar integrations, product_id might be null but SKU exists
 		if shopify_item.get("product_exists"):
 			item_code = get_item_code(shopify_item, store_name=store_name)
-		elif shopify_item.get("sku"):
+		
+		# If standard lookup failed but we have a SKU, try direct ERPNext lookup
+		if not item_code and shopify_item.get("sku"):
 			# Product doesn't exist in Shopify catalog but has SKU - try to match by SKU
 			# This handles Duoplane, draft orders, and custom line items
 			sku = shopify_item.get("sku")
 			
 			# Debug log what we're searching for
 			frappe.log_error(
-				message=f"Searching for SKU: {sku}, product_exists: {shopify_item.get('product_exists')}, product_id: {shopify_item.get('product_id')}",
+				message=f"Direct SKU lookup: {sku}, product_exists: {shopify_item.get('product_exists')}, product_id: {shopify_item.get('product_id')}",
 				title="Shopify SKU Lookup Debug"
 			)
 			
@@ -286,7 +288,11 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 			if not item_code:
 				item_code = frappe.db.get_value("Item", {"sku": sku, "disabled": 0})
 			
-			# Then try item name
+			# Then try barcode field
+			if not item_code:
+				item_code = frappe.db.get_value("Item Barcode", {"barcode": sku}, "parent")
+			
+			# Then try item name (less common)
 			if not item_code:
 				item_code = frappe.db.get_value("Item", {"item_name": sku, "disabled": 0})
 			
