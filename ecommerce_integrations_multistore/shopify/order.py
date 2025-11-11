@@ -361,20 +361,15 @@ def _get_item_price(line_item, taxes_inclusive: bool) -> float:
 
 	# remove line item level discounts
 	total_discount = _get_total_discount(line_item)
-	discount_per_item = total_discount / qty if qty else 0
 
 	if not taxes_inclusive:
-		return price - discount_per_item
+		return price - (total_discount / qty)
 
-	# For tax-inclusive pricing, we need to remove tax from the price
 	total_taxes = 0.0
 	for tax in line_item.get("tax_lines"):
 		total_taxes += flt(tax.get("price"))
-	
-	tax_per_item = total_taxes / qty if qty else 0
 
-	# Return price minus tax and discount per item
-	return price - tax_per_item - discount_per_item
+	return price - (total_taxes + total_discount) / qty
 
 
 def _get_total_discount(line_item) -> float:
@@ -393,6 +388,7 @@ def get_order_taxes(shopify_order, setting, items, store_name=None):
 	"""
 	taxes = []
 	line_items = shopify_order.get("line_items")
+	taxes_included = shopify_order.get("taxes_included", False)
 
 	for line_item in line_items:
 		item_code = get_item_code(line_item, store_name=store_name)
@@ -406,7 +402,7 @@ def get_order_taxes(shopify_order, setting, items, store_name=None):
 						or f"{tax.get('title')} - {tax.get('rate') * 100.0:.2f}%"
 					),
 					"tax_amount": tax.get("price"),
-					"included_in_print_rate": 0,
+					"included_in_print_rate": 1 if taxes_included else 0,
 					"cost_center": setting.cost_center,
 					"item_wise_tax_detail": {item_code: [flt(tax.get("rate")) * 100, flt(tax.get("price"))]},
 					"dont_recompute_tax": 1,
@@ -578,6 +574,7 @@ def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxe
 						or f"{tax.get('title')} - {tax.get('rate') * 100.0:.2f}%"
 					),
 					"tax_amount": tax["price"],
+					"included_in_print_rate": 1 if taxes_inclusive else 0,
 					"cost_center": setting.cost_center,
 					"item_wise_tax_detail": {
 						setting.shipping_item: [flt(tax.get("rate")) * 100, flt(tax.get("price"))]
