@@ -512,6 +512,9 @@ def create_sales_invoice(shopify_order, setting, company=None):
 		# Assign power supplies based on shipping country
 		assign_power_supplies(si, shopify_order)
 		
+		# Set warehouse based on shipping destination
+		set_item_warehouses(si, shopify_order, setting)
+		
 		# Recalculate totals after power supply assignment
 		si.calculate_taxes_and_totals()
 		si.save(ignore_permissions=True)
@@ -598,6 +601,61 @@ def assign_power_supplies(invoice, shopify_order):
 			message=f"Added power supply {ps_data['item_code']} (qty: {ps_data['qty']}) for {ps_data['reference_item']} to {country}",
 			title="Power Supply Assignment"
 		)
+
+
+def set_item_warehouses(invoice, shopify_order, setting):
+	"""Set warehouse for each item based on shipping destination and overrides.
+	
+	Args:
+	    invoice: Sales Invoice document
+	    shopify_order: Shopify order data
+	    setting: Shopify Store settings
+	"""
+	shipping_address = shopify_order.get("shipping_address", {})
+	country_code = shipping_address.get("country_code")
+	
+	# Default to international warehouse if no country specified
+	is_us_shipment = country_code == "US"
+	
+	# Get default warehouses from settings
+	default_warehouse = setting.us_warehouse if is_us_shipment else setting.international_warehouse
+	
+	if not default_warehouse:
+		frappe.log_error(
+			message=f"No {'US' if is_us_shipment else 'international'} warehouse configured for store {setting.name}",
+			title="Warehouse Configuration Warning"
+		)
+		return
+	
+	# Get item overrides
+	overrides = {}
+	if hasattr(setting, 'item_warehouse_overrides'):
+		for override in setting.item_warehouse_overrides:
+			overrides[override.item_code] = override.warehouse
+	
+	# Set warehouse for each item
+	for item in invoice.items:
+		# Check for item-specific override first
+		if item.item_code in overrides:
+			item.warehouse = overrides[item.item_code]
+			frappe.log_error(
+				message=f"Using override warehouse {item.warehouse} for item {item.item_code}",
+				title="Warehouse Override Applied"
+			)
+		else:
+			# Use default based on shipping destination
+			item.warehouse = default_warehouse
+	
+	# Log the warehouse assignment
+	frappe.log_error(
+		message=(
+			f"Warehouse assignment for order {shopify_order.get('name')}:\n"
+			f"Shipping to: {country_code}\n"
+			f"Default warehouse: {default_warehouse}\n"
+			f"Items with overrides: {list(overrides.keys())}"
+		),
+		title="Warehouse Assignment"
+	)
 
 
 def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_name=None):

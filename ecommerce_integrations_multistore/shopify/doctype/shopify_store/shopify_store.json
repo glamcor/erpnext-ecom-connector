@@ -63,7 +63,12 @@
   "old_orders_to",
   "is_old_data_migrated",
   "last_inventory_sync",
-  "last_order_sync"
+  "last_order_sync",
+  "warehouse_settings_section",
+  "us_warehouse",
+  "international_warehouse",
+  "column_break_warehouse",
+  "item_warehouse_overrides"
  ],
  "fields": [
   {
@@ -434,6 +439,36 @@
    "fieldtype": "Link",
    "label": "Default Shipping Charges Account",
    "options": "Account"
+  },
+  {
+   "fieldname": "warehouse_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Warehouse Settings"
+  },
+  {
+   "fieldname": "us_warehouse",
+   "fieldtype": "Link",
+   "label": "US Warehouse",
+   "options": "Warehouse",
+   "description": "Default warehouse for US shipments"
+  },
+  {
+   "fieldname": "international_warehouse",
+   "fieldtype": "Link",
+   "label": "International Warehouse",
+   "options": "Warehouse",
+   "description": "Default warehouse for international shipments"
+  },
+  {
+   "fieldname": "column_break_warehouse",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "item_warehouse_overrides",
+   "fieldtype": "Table",
+   "label": "Item Warehouse Overrides",
+   "options": "Item Warehouse Override",
+   "description": "Specific items that always ship from a particular warehouse"
   }
  ],
  "index_web_pages_for_search": 1,
