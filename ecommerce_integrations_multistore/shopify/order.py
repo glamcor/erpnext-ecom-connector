@@ -221,12 +221,18 @@ def create_sales_order(shopify_order, setting, company=None):
 			if not item.conversion_factor or item.conversion_factor == 0:
 				item.conversion_factor = 1.0
 		
+		# Calculate taxes and totals before saving
+		so.calculate_taxes_and_totals()
+		
 		so.save(ignore_permissions=True)
 		so.submit()
 		
 		# Verify the order was saved
 		if not frappe.db.exists("Sales Order", so.name):
 			raise Exception(f"Sales Order {so.name} was not saved to database")
+		
+		# Reload to get calculated totals
+		so.reload()
 		
 		# Debug grand total comparison
 		shopify_total = flt(shopify_order.get("current_total_price") or shopify_order.get("total_price"))
