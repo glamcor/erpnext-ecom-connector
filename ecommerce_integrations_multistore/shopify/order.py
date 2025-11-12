@@ -19,7 +19,7 @@ from ecommerce_integrations_multistore.shopify.constants import (
 	STORE_DOCTYPE,
 	STORE_LINK_FIELD,
 )
-from ecommerce_integrations_multistore.shopify.customer import ShopifyCustomer
+from ecommerce_integrations_multistore.shopify.customer import ShopifyCustomer, get_address_doc
 from ecommerce_integrations_multistore.shopify.product import create_items_if_not_exist, get_item_code
 from ecommerce_integrations_multistore.shopify.utils import create_shopify_log
 from ecommerce_integrations_multistore.utils.price_list import get_dummy_price_list
@@ -48,7 +48,22 @@ def is_complete_order(shopify_order):
 	
 	has_address = bool(shipping.get("address1"))
 	
-	return not is_tiktok_placeholder and has_address
+	# Also check if we have a real customer name (not just the email)
+	has_real_name = False
+	if shipping:
+		# Check shipping name first
+		shipping_name = f"{shipping.get('first_name', '')} {shipping.get('last_name', '')}".strip()
+		# Check if the name is not just the email prefix
+		if shipping_name and shipping_name != email.split('@')[0]:
+			has_real_name = True
+	
+	if not has_real_name and customer:
+		# Check customer name as fallback
+		customer_name = f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip()
+		if customer_name and customer_name != email.split('@')[0]:
+			has_real_name = True
+	
+	return not is_tiktok_placeholder and has_address and has_real_name
 
 
 def sync_sales_order(payload, request_id=None, store_name=None):
@@ -427,6 +442,26 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			shopify_order, setting
 		)
 		
+		# Get billing and shipping addresses
+		billing_address = None
+		shipping_address = None
+		
+		if shopify_order.get("billing_address"):
+			billing_address = get_address_doc(
+				shopify_order.get("billing_address"),
+				customer,
+				"Billing",
+				store_name=store_name
+			)
+		
+		if shopify_order.get("shipping_address"):
+			shipping_address = get_address_doc(
+				shopify_order.get("shipping_address"),
+				customer,
+				"Shipping",
+				store_name=store_name
+			)
+		
 		si_dict = {
 			"doctype": "Sales Invoice",
 			"naming_series": setting.sales_invoice_series or "SI-Shopify-",
@@ -434,6 +469,8 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			ORDER_NUMBER_FIELD: shopify_order.get("name"),
 			ORDER_STATUS_FIELD: shopify_order.get("financial_status"),
 			"customer": customer,
+			"customer_address": billing_address,
+			"shipping_address_name": shipping_address,
 			"posting_date": getdate(shopify_order.get("created_at")) or nowdate(),
 			"due_date": getdate(shopify_order.get("created_at")) or nowdate(),
 			"company": setting.company,
@@ -1177,11 +1214,11 @@ def _get_channel_financials(shopify_order: dict, setting) -> tuple[str | None, s
 	return None, None
 
 
-def _sync_order_tags(sales_order, shopify_tags: str) -> None:
-	"""Parse Shopify tags and add them to Sales Order using ERPNext native tagging.
+def _sync_order_tags(document, shopify_tags: str) -> None:
+	"""Parse Shopify tags and add them to Sales Order or Sales Invoice using ERPNext native tagging.
 	
 	Args:
-	    sales_order: ERPNext Sales Order document
+	    document: ERPNext Sales Order or Sales Invoice document
 	    shopify_tags: Comma-separated string of tags from Shopify (e.g., "wholesale, priority")
 	"""
 	if not shopify_tags or not isinstance(shopify_tags, str):
@@ -1194,11 +1231,11 @@ def _sync_order_tags(sales_order, shopify_tags: str) -> None:
 	from frappe.desk.doctype.tag.tag import add_tag
 	for tag in tags:
 		try:
-			add_tag(tag, "Sales Order", sales_order.name)
+			add_tag(tag, document.doctype, document.name)
 		except Exception as e:
 			# Don't fail the order sync if tagging fails
 			frappe.log_error(
-				message=f"Failed to add tag '{tag}' to Sales Order {sales_order.name}: {str(e)}",
+				message=f"Failed to add tag '{tag}' to {document.doctype} {document.name}: {str(e)}",
 				title="Shopify Tag Sync Error"
 			)
 
