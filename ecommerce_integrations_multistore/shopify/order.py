@@ -97,12 +97,19 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 			message=f"Order marked as incomplete: {order.get('name')}\nCustomer email: {order.get('customer', {}).get('email')}\nHas shipping address: {bool(order.get('shipping_address'))}",
 			title="Incomplete Order Detection"
 		)
-		create_shopify_log(
-			status="Incomplete Order",
-			message=f"Order {order.get('name')} is incomplete (TikTok placeholder or missing address). Waiting for update.",
-			request_data=order,
-			store_name=store_name
-		)
+		# Update the log status to Incomplete Order
+		if frappe.flags.request_id:
+			try:
+				log_doc = frappe.get_doc("Ecommerce Integration Log", frappe.flags.request_id)
+				log_doc.status = "Incomplete Order"
+				log_doc.message = f"Order {order.get('name')} is incomplete (missing address or customer info). Waiting for update."
+				log_doc.save(ignore_permissions=True)
+				frappe.db.commit()
+			except Exception as log_error:
+				frappe.log_error(
+					message=f"Failed to update incomplete order log status: {str(log_error)}",
+					title="Log Update Error"
+				)
 		return
 	try:
 		# Get store-specific settings
@@ -141,14 +148,44 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 			raise Exception(f"Invoice creation failed - no result returned for Shopify order {order.get('name')}")
 		
 	except Exception as e:
+		# Log the error first
 		frappe.log_error(
-			message=f"Error processing order {order.get('name', 'Unknown')}: {str(e)}\nOrder ID: {order.get('id')}\nStore: {store_name}",
+			message=f"Error processing order {order.get('name', 'Unknown')}: {str(e)}\nOrder ID: {order.get('id')}\nStore: {store_name}\nTraceback: {frappe.get_traceback()}",
 			title="Shopify Order Sync Error"
 		)
-		create_shopify_log(status="Error", exception=e, rollback=True, store_name=store_name)
-		raise  # Re-raise the exception so the job fails properly
-	else:
-		create_shopify_log(status="Success", store_name=store_name)
+		
+		# Update the log status without rollback first
+		if frappe.flags.request_id:
+			try:
+				# Commit any pending changes first
+				frappe.db.commit()
+				# Now update the log status
+				log_doc = frappe.get_doc("Ecommerce Integration Log", frappe.flags.request_id)
+				log_doc.status = "Error"
+				log_doc.message = str(e)
+				log_doc.traceback = frappe.get_traceback()
+				log_doc.save(ignore_permissions=True)
+				frappe.db.commit()
+			except Exception as log_error:
+				frappe.log_error(
+					message=f"Failed to update log status: {str(log_error)}",
+					title="Log Update Error"
+				)
+		return
+	
+	# Success case - update the log status
+	if frappe.flags.request_id:
+		try:
+			log_doc = frappe.get_doc("Ecommerce Integration Log", frappe.flags.request_id)
+			log_doc.status = "Success"
+			log_doc.message = f"Sales Invoice created for order {order.get('name')}"
+			log_doc.save(ignore_permissions=True)
+			frappe.db.commit()
+		except Exception as log_error:
+			frappe.log_error(
+				message=f"Failed to update success log status: {str(log_error)}",
+				title="Log Update Error"
+			)
 
 
 @frappe.whitelist()
