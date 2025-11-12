@@ -1,3 +1,5 @@
+import json
+
 import frappe
 from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
 from frappe.utils import cint, cstr, getdate, nowdate
@@ -147,11 +149,120 @@ def auto_create_delivery_note(doc, method=None):
 		from ecommerce_integrations_multistore.shopify.fulfillment import send_to_shipstation
 		send_to_shipstation(dn, setting)
 		
+		# Create payment entry if order is paid
+		create_payment_entry_for_invoice(doc, setting)
+		
 	except Exception as e:
 		# Log error but don't fail the invoice submission
 		frappe.log_error(
 			message=f"Failed to auto-create delivery note for invoice {doc.name}: {str(e)}",
 			title="Auto Delivery Note Error"
+		)
+
+
+def create_payment_entry_for_invoice(invoice, setting):
+	"""Create Payment Entry for paid Shopify orders.
+	
+	Args:
+	    invoice: Sales Invoice document
+	    setting: Shopify Store settings
+	"""
+	try:
+		# Get the Shopify order data
+		order_id = invoice.get(ORDER_ID_FIELD)
+		if not order_id:
+			return
+		
+		# Get the original order data from the integration log
+		order_data = frappe.db.get_value(
+			"Ecommerce Integration Log",
+			{
+				"request_data": ["like", f'%"id": {order_id}%'],
+				"method": ["like", "%sync_sales_order%"],
+				"status": "Success"
+			},
+			"request_data"
+		)
+		
+		if not order_data:
+			frappe.log_error(
+				message=f"Could not find Shopify order data for invoice {invoice.name}",
+				title="Payment Entry Creation Warning"
+			)
+			return
+		
+		try:
+			shopify_order = json.loads(order_data)
+		except:
+			return
+		
+		# Check if order is paid
+		if shopify_order.get("financial_status") != "paid":
+			return
+		
+		# Check if payment entry already exists
+		existing_pe = frappe.db.exists(
+			"Payment Entry",
+			{
+				"reference_name": invoice.name,
+				"reference_doctype": "Sales Invoice",
+				"docstatus": ["!=", 2]
+			}
+		)
+		
+		if existing_pe:
+			return
+		
+		# Get payment account from sales channel mapping
+		from ecommerce_integrations_multistore.shopify.order import _get_channel_financials
+		cost_center, cash_bank_account = _get_channel_financials(shopify_order, setting)
+		
+		# If no channel-specific account, use company default
+		if not cash_bank_account:
+			cash_bank_account = setting.cash_bank_account
+		
+		if not cash_bank_account:
+			frappe.log_error(
+				message=f"No cash/bank account configured for payment entry creation",
+				title="Payment Entry Configuration Missing"
+			)
+			return
+		
+		# Create payment entry
+		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+		
+		pe = get_payment_entry("Sales Invoice", invoice.name, bank_account=cash_bank_account)
+		pe.reference_no = shopify_order.get("name")  # Shopify order number
+		pe.reference_date = getdate(shopify_order.get("created_at"))
+		
+		# Set cost center if available
+		if cost_center:
+			pe.cost_center = cost_center
+		
+		# Add payment gateway info if available
+		gateway = shopify_order.get("gateway", "").replace("_", " ").title()
+		if gateway:
+			pe.remarks = f"Payment via {gateway} - Shopify Order {shopify_order.get('name')}"
+		
+		pe.save(ignore_permissions=True)
+		pe.submit()
+		
+		# Add comment to invoice
+		invoice.add_comment(
+			comment_type="Info",
+			text=f"Payment Entry {pe.name} created automatically"
+		)
+		
+		frappe.log_error(
+			message=f"Auto-created Payment Entry {pe.name} for Sales Invoice {invoice.name}",
+			title="Shopify Auto Payment Entry"
+		)
+		
+	except Exception as e:
+		# Log error but don't fail the invoice submission
+		frappe.log_error(
+			message=f"Failed to auto-create payment entry for invoice {invoice.name}: {str(e)}",
+			title="Auto Payment Entry Error"
 		)
 
 
