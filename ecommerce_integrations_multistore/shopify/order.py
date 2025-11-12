@@ -91,6 +91,10 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 	
 	# Check if order is complete
 	if not is_complete_order(order):
+		frappe.log_error(
+			message=f"Order marked as incomplete: {order.get('name')}\nCustomer email: {order.get('customer', {}).get('email')}\nHas shipping address: {bool(order.get('shipping_address'))}",
+			title="Incomplete Order Detection"
+		)
 		create_shopify_log(
 			status="Incomplete Order",
 			message=f"Order {order.get('name')} is incomplete (TikTok placeholder or missing address). Waiting for update.",
@@ -135,7 +139,12 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 			raise Exception(f"Invoice creation failed - no result returned for Shopify order {order.get('name')}")
 		
 	except Exception as e:
+		frappe.log_error(
+			message=f"Error processing order {order.get('name', 'Unknown')}: {str(e)}\nOrder ID: {order.get('id')}\nStore: {store_name}",
+			title="Shopify Order Sync Error"
+		)
 		create_shopify_log(status="Error", exception=e, rollback=True, store_name=store_name)
+		raise  # Re-raise the exception so the job fails properly
 	else:
 		create_shopify_log(status="Success", store_name=store_name)
 
