@@ -32,38 +32,40 @@ DEFAULT_TAX_FIELDS = {
 
 
 def is_complete_order(shopify_order):
-	"""Check if order has complete customer information (not TikTok placeholder)."""
-	# Check if customer exists and has valid name
-	customer = shopify_order.get("customer", {})
-	email = customer.get("email", "")
+	"""Check if order has complete customer information.
 	
-	# TikTok orders have alphanumeric@tiktokw.us pattern
-	is_tiktok_placeholder = "@tiktokw.us" in email.lower() if email else True
-	
-	# Check shipping address has street address
+	For TikTok orders: Must have real shipping name and address.
+	For other orders: Must have address.
+	"""
+	# Check shipping address exists and has street address
 	shipping = shopify_order.get("shipping_address")
-	if shipping is None:
-		# No shipping address at all - incomplete
+	if not shipping or not shipping.get("address1"):
 		return False
 	
-	has_address = bool(shipping.get("address1"))
+	# Check if this is a TikTok order
+	customer = shopify_order.get("customer", {})
+	email = customer.get("email", "")
+	is_tiktok_order = "@tiktokw.us" in email.lower() if email else False
 	
-	# Also check if we have a real customer name (not just the email)
-	has_real_name = False
-	if shipping:
-		# Check shipping name first
-		shipping_name = f"{shipping.get('first_name', '')} {shipping.get('last_name', '')}".strip()
-		# Check if the name is not just the email prefix
-		if shipping_name and shipping_name != email.split('@')[0]:
-			has_real_name = True
+	if is_tiktok_order:
+		# For TikTok orders, check if we have a real shipping name
+		shipping_first = shipping.get("first_name", "").strip()
+		shipping_last = shipping.get("last_name", "").strip()
+		
+		# Check if name is not masked (contains asterisks) or empty
+		if not shipping_first or not shipping_last:
+			return False
+		if "*" in shipping_first or "*" in shipping_last:
+			return False
+		
+		# Check if the shipping name is different from email prefix
+		shipping_name = f"{shipping_first} {shipping_last}"
+		email_prefix = email.split('@')[0] if email else ""
+		if shipping_name.lower() == email_prefix.lower():
+			return False
 	
-	if not has_real_name and customer:
-		# Check customer name as fallback
-		customer_name = f"{customer.get('first_name', '')} {customer.get('last_name', '')}".strip()
-		if customer_name and customer_name != email.split('@')[0]:
-			has_real_name = True
-	
-	return not is_tiktok_placeholder and has_address and has_real_name
+	# Order is complete
+	return True
 
 
 def sync_sales_order(payload, request_id=None, store_name=None):
