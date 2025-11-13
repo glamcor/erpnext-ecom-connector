@@ -19,7 +19,7 @@ from ecommerce_integrations_multistore.shopify.constants import (
 	STORE_DOCTYPE,
 	STORE_LINK_FIELD,
 )
-from ecommerce_integrations_multistore.shopify.customer import ShopifyCustomer, get_address_doc
+from ecommerce_integrations_multistore.shopify.customer import ShopifyCustomer
 from ecommerce_integrations_multistore.shopify.product import create_items_if_not_exist, get_item_code
 from ecommerce_integrations_multistore.shopify.utils import create_shopify_log
 from ecommerce_integrations_multistore.utils.price_list import get_dummy_price_list
@@ -494,21 +494,23 @@ def create_sales_invoice(shopify_order, setting, company=None):
 		billing_address = None
 		shipping_address = None
 		
-		if shopify_order.get("billing_address"):
-			billing_address = get_address_doc(
-				shopify_order.get("billing_address"),
-				customer,
-				"Billing",
-				store_name=store_name
-			)
+		# TODO: Fix address assignment - get_address_doc not implemented
+		# For now, leave addresses as None
+		# if shopify_order.get("billing_address"):
+		# 	billing_address = get_address_doc(
+		# 		shopify_order.get("billing_address"),
+		# 		customer,
+		# 		"Billing",
+		# 		store_name=store_name
+		# 	)
 		
-		if shopify_order.get("shipping_address"):
-			shipping_address = get_address_doc(
-				shopify_order.get("shipping_address"),
-				customer,
-				"Shipping",
-				store_name=store_name
-			)
+		# if shopify_order.get("shipping_address"):
+		# 	shipping_address = get_address_doc(
+		# 		shopify_order.get("shipping_address"),
+		# 		customer,
+		# 		"Shipping",
+		# 		store_name=store_name
+		# 	)
 		
 		si_dict = {
 			"doctype": "Sales Invoice",
