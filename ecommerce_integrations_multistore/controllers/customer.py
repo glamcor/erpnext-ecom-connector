@@ -59,14 +59,41 @@ class EcommerceCustomer:
 		"""Create address from dictionary containing fields used in Address doctype of ERPNext."""
 
 		customer_doc = self.get_customer_doc()
-
-		frappe.get_doc(
-			{
-				"doctype": "Address",
-				**address,
-				"links": [{"link_doctype": "Customer", "link_name": customer_doc.name}],
-			}
-		).insert(ignore_mandatory=True)
+		
+		# Check if address already exists
+		address_name = address.get("address_title")
+		if address_name and frappe.db.exists("Address", address_name):
+			# Update existing address instead of creating new one
+			existing_address = frappe.get_doc("Address", address_name)
+			
+			# Update fields
+			for key, value in address.items():
+				if key != "address_title" and hasattr(existing_address, key):
+					setattr(existing_address, key, value)
+			
+			# Ensure customer link exists
+			customer_linked = False
+			for link in existing_address.links:
+				if link.link_doctype == "Customer" and link.link_name == customer_doc.name:
+					customer_linked = True
+					break
+			
+			if not customer_linked:
+				existing_address.append("links", {
+					"link_doctype": "Customer",
+					"link_name": customer_doc.name
+				})
+			
+			existing_address.save(ignore_permissions=True)
+		else:
+			# Create new address
+			frappe.get_doc(
+				{
+					"doctype": "Address",
+					**address,
+					"links": [{"link_doctype": "Customer", "link_name": customer_doc.name}],
+				}
+			).insert(ignore_mandatory=True)
 
 	def create_customer_contact(self, contact: dict[str, str]) -> None:
 		"""Create contact from dictionary containing fields used in Address doctype of ERPNext."""
