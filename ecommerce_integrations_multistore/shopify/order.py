@@ -82,11 +82,15 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 	frappe.set_user("Administrator")
 	frappe.flags.request_id = request_id
 
-	# Check if invoice already exists
-	if frappe.db.get_value("Sales Invoice", filters={ORDER_ID_FIELD: cstr(order["id"])}):
+	# Check if invoice already exists for this store
+	existing_invoice_filters = {ORDER_ID_FIELD: cstr(order["id"])}
+	if store_name:
+		existing_invoice_filters[STORE_LINK_FIELD] = store_name
+	
+	if frappe.db.get_value("Sales Invoice", filters=existing_invoice_filters):
 		create_shopify_log(
 			status="Invalid", 
-			message="Sales invoice already exists, not synced",
+			message=f"Sales invoice already exists for order {order.get('name')} in store {store_name}, not synced",
 			store_name=store_name
 		)
 		return
@@ -205,12 +209,16 @@ def handle_order_update(payload, request_id=None, store_name=None):
 	
 	order_id = cstr(order["id"])
 	
-	# Check if we already have a Sales Invoice for this
-	if frappe.db.get_value("Sales Invoice", filters={ORDER_ID_FIELD: order_id}):
+	# Check if we already have a Sales Invoice for this order in this store
+	existing_invoice_filters = {ORDER_ID_FIELD: order_id}
+	if store_name:
+		existing_invoice_filters[STORE_LINK_FIELD] = store_name
+		
+	if frappe.db.get_value("Sales Invoice", filters=existing_invoice_filters):
 		# Order already processed, ignore update
 		create_shopify_log(
 			status="Invalid",
-			message="Sales invoice already exists, update ignored",
+			message=f"Sales invoice already exists for order {order.get('name')} in store {store_name}, update ignored",
 			store_name=store_name
 		)
 		return
@@ -293,7 +301,11 @@ def create_sales_order(shopify_order, setting, company=None):
 				# Backward compatibility: single-store lookup
 				customer = frappe.db.get_value("Customer", {CUSTOMER_ID_FIELD: customer_id}, "name")
 
-	so = frappe.db.get_value("Sales Order", {ORDER_ID_FIELD: shopify_order.get("id")}, "name")
+	# Check if sales order already exists for this store
+	order_filters = {ORDER_ID_FIELD: shopify_order.get("id")}
+	if store_name:
+		order_filters[STORE_LINK_FIELD] = store_name
+	so = frappe.db.get_value("Sales Order", order_filters, "name")
 
 	if not so:
 		items = get_order_items(
@@ -451,8 +463,11 @@ def create_sales_invoice(shopify_order, setting, company=None):
 				# Backward compatibility: single-store lookup
 				customer = frappe.db.get_value("Customer", {CUSTOMER_ID_FIELD: customer_id}, "name")
 
-	# Check if invoice already exists
-	si = frappe.db.get_value("Sales Invoice", {ORDER_ID_FIELD: shopify_order.get("id")}, "name")
+	# Check if invoice already exists for this store
+	invoice_filters = {ORDER_ID_FIELD: shopify_order.get("id")}
+	if store_name:
+		invoice_filters[STORE_LINK_FIELD] = store_name
+	si = frappe.db.get_value("Sales Invoice", invoice_filters, "name")
 
 	if not si:
 		items = get_order_items(

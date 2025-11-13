@@ -78,10 +78,15 @@ def auto_create_delivery_note(doc, method=None):
 	if not doc.get(ORDER_ID_FIELD):
 		return
 	
-	# Check if delivery note already exists
+	# Check if delivery note already exists for this store
+	dn_filters = {ORDER_ID_FIELD: doc.get(ORDER_ID_FIELD)}
+	store_name = doc.get(STORE_LINK_FIELD)
+	if store_name:
+		dn_filters[STORE_LINK_FIELD] = store_name
+		
 	existing_dn = frappe.db.get_value(
 		"Delivery Note",
-		{ORDER_ID_FIELD: doc.get(ORDER_ID_FIELD)},
+		dn_filters,
 		"name"
 	)
 	
@@ -275,8 +280,13 @@ def create_sales_invoice(shopify_order, setting, so, store_name=None):
 	    so: Sales Order doc
 	    store_name: Shopify Store name for multi-store support
 	"""
+	# Check if invoice exists for this store
+	invoice_filters = {ORDER_ID_FIELD: shopify_order.get("id")}
+	if store_name:
+		invoice_filters[STORE_LINK_FIELD] = store_name
+		
 	if (
-		not frappe.db.get_value("Sales Invoice", {ORDER_ID_FIELD: shopify_order.get("id")}, "name")
+		not frappe.db.get_value("Sales Invoice", invoice_filters, "name")
 		and so.docstatus == 1
 		and not so.per_billed
 		and cint(setting.sync_sales_invoice)
