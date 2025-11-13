@@ -21,10 +21,15 @@ def document_lock(doctype, name, timeout=30):
     try:
         # Try to acquire lock with timeout
         while time.time() - start_time < timeout:
-            # Try to set lock (returns 1 if successful, 0 if already exists)
-            if frappe.cache().set_if_not_exists(lock_key, frappe.session.user, ex=timeout):
-                lock_acquired = True
-                break
+            # Check if lock exists
+            existing_lock = frappe.cache().get(lock_key)
+            if not existing_lock:
+                # Try to set lock atomically
+                frappe.cache().setex(lock_key, timeout, frappe.session.user or "System")
+                # Verify we got the lock (in case of race condition)
+                if frappe.cache().get(lock_key) == (frappe.session.user or "System"):
+                    lock_acquired = True
+                    break
             # Wait a bit before retrying
             time.sleep(0.1)
         
