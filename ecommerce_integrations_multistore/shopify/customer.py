@@ -12,6 +12,7 @@ from ecommerce_integrations_multistore.shopify.constants import (
 	SETTING_DOCTYPE,
 	STORE_DOCTYPE,
 )
+from ecommerce_integrations_multistore.utils.document_locking import document_lock, safe_document_update
 
 
 class ShopifyCustomer(EcommerceCustomer):
@@ -73,13 +74,14 @@ class ShopifyCustomer(EcommerceCustomer):
 			
 			if existing_customer and not existing_customer.get(self.customer_id_field):
 				# Customer exists but doesn't have Shopify ID - update it
-				frappe.db.set_value(
-					"Customer", 
-					existing_customer.name, 
-					self.customer_id_field, 
-					self.customer_id
-				)
-				customer_doc = frappe.get_doc("Customer", existing_customer.name)
+				with document_lock("Customer", existing_customer.name):
+					frappe.db.set_value(
+						"Customer", 
+						existing_customer.name, 
+						self.customer_id_field, 
+						self.customer_id
+					)
+					customer_doc = frappe.get_doc("Customer", existing_customer.name)
 			elif existing_customer:
 				# Customer exists and has Shopify ID
 				customer_doc = frappe.get_doc("Customer", existing_customer.name)
@@ -125,12 +127,14 @@ class ShopifyCustomer(EcommerceCustomer):
 				break
 		
 		if not existing:
-			customer_doc.append("shopify_store_customer_links", {
-				"store": self.store_name,
-				"shopify_customer_id": self.customer_id,
-				"last_synced_on": frappe.utils.now(),
-			})
-			customer_doc.save(ignore_permissions=True)
+			def update_customer_links(doc):
+				doc.append("shopify_store_customer_links", {
+					"store": self.store_name,
+					"shopify_customer_id": self.customer_id,
+					"last_synced_on": frappe.utils.now(),
+				})
+			
+			safe_document_update("Customer", customer_doc.name, update_customer_links)
 
 	def create_customer_address(
 		self,
@@ -200,12 +204,14 @@ class ShopifyCustomer(EcommerceCustomer):
 				break
 		
 		if not existing:
-			address_doc.append("shopify_store_address_links", {
-				"store": self.store_name,
-				"shopify_address_id": shopify_address_id,
-				"last_synced_on": frappe.utils.now(),
-			})
-			address_doc.save(ignore_permissions=True)
+			def update_address_links(doc):
+				doc.append("shopify_store_address_links", {
+					"store": self.store_name,
+					"shopify_address_id": shopify_address_id,
+					"last_synced_on": frappe.utils.now(),
+				})
+			
+			safe_document_update("Address", address_name, update_address_links)
 
 	def create_customer_contact(self, shopify_customer: dict[str, Any]) -> None:
 		if not (shopify_customer.get("first_name") and shopify_customer.get("email")):
