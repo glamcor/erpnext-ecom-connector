@@ -1,57 +1,51 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "format:{bundle_item}-{country}",
- "creation": "2025-01-11 00:00:00.000000",
+ "autoname": "field:country_code",
+ "creation": "2025-01-01 00:00:00.000000",
  "default_view": "List",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "bundle_item",
-  "country",
-  "power_supply_item",
-  "is_active"
+  "country_code",
+  "country_name",
+  "power_supply_type"
  ],
  "fields": [
   {
-   "fieldname": "bundle_item",
-   "fieldtype": "Link",
+   "fieldname": "country_code",
+   "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Bundle Item",
-   "options": "Item",
-   "reqd": 1
+   "label": "Country Code",
+   "length": 2,
+   "reqd": 1,
+   "unique": 1,
+   "description": "Two-letter country code (e.g., US, GB, DE)"
   },
   {
-   "fieldname": "country",
-   "fieldtype": "Link",
+   "fieldname": "country_name",
+   "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Country",
-   "options": "Country",
-   "reqd": 1
+   "label": "Country Name"
   },
   {
-   "fieldname": "power_supply_item",
-   "fieldtype": "Link",
+   "fieldname": "power_supply_type",
+   "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Power Supply Item",
-   "options": "Item",
-   "reqd": 1
-  },
-  {
-   "default": "1",
-   "fieldname": "is_active",
-   "fieldtype": "Check",
-   "label": "Is Active"
+   "label": "Power Supply Type",
+   "options": "US\nUK\nEU\nAU",
+   "reqd": 1,
+   "description": "Power supply type to use for this country"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-01-11 00:00:00.000000",
+ "modified": "2025-01-01 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Shopify",
  "name": "Power Supply Mapping",
- "naming_rule": "Expression",
+ "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
   {
@@ -74,22 +68,14 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Sales Manager",
+   "role": "Stock Manager",
    "share": 1,
    "write": 1
-  },
-  {
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Sales User",
-   "share": 1
   }
  ],
- "sort_field": "creation",
- "sort_order": "DESC",
+ "quick_entry": 1,
+ "sort_field": "country_code",
+ "sort_order": "ASC",
  "states": [],
  "track_changes": 1
 }
