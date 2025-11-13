@@ -251,24 +251,76 @@ class ShopifyCustomer(EcommerceCustomer):
 		if not address_name:
 			return
 		
-		address_doc = frappe.get_doc("Address", address_name)
+		# First, do a quick database check to see if link already exists
+		link_exists = frappe.db.exists({
+			"doctype": "Shopify Store Address Link",
+			"parent": address_name,
+			"parenttype": "Address",
+			"store": self.store_name,
+			"shopify_address_id": shopify_address_id
+		})
 		
-		# Check if link already exists
-		existing = False
-		for link in address_doc.get("shopify_store_address_links", []):
-			if link.store == self.store_name and link.shopify_address_id == shopify_address_id:
-				existing = True
-				break
+		if link_exists:
+			# Link already exists, no need to update
+			return
 		
-		if not existing:
+		# Try to add the link with minimal locking
+		try:
+			# Create the child record directly
+			link_doc = frappe.get_doc({
+				"doctype": "Shopify Store Address Link",
+				"parent": address_name,
+				"parenttype": "Address",
+				"parentfield": "shopify_store_address_links",
+				"store": self.store_name,
+				"shopify_address_id": shopify_address_id,
+				"last_synced_on": frappe.utils.now(),
+			})
+			link_doc.insert(ignore_permissions=True)
+			
+			# Update the modified timestamp of parent
+			frappe.db.set_value(
+				"Address", 
+				address_name, 
+				"modified", 
+				frappe.utils.now(),
+				update_modified=False
+			)
+			
+			frappe.db.commit()
+			
+		except frappe.DuplicateEntryError:
+			# Another process already added this link, that's fine
+			pass
+		except Exception as e:
+			# Fall back to the safe update method if direct insert fails
+			frappe.log_error(
+				message=f"Direct address link insert failed for {address_name}, falling back to safe update: {str(e)}",
+				title="Address Link Insert Warning"
+			)
+			
+			# Get fresh copy of address
+			address_doc = frappe.get_doc("Address", address_name)
+			
+			# Check again if link exists (in case it was added while we were trying)
+			for link in address_doc.get("shopify_store_address_links", []):
+				if link.store == self.store_name and str(link.shopify_address_id) == str(shopify_address_id):
+					return  # Already exists
+			
 			def update_address_links(doc):
+				# Double-check before adding
+				for link in doc.get("shopify_store_address_links", []):
+					if link.store == self.store_name and str(link.shopify_address_id) == str(shopify_address_id):
+						return  # Already exists
+				
 				doc.append("shopify_store_address_links", {
 					"store": self.store_name,
 					"shopify_address_id": shopify_address_id,
 					"last_synced_on": frappe.utils.now(),
 				})
 			
-			safe_document_update("Address", address_name, update_address_links)
+			# Use skip_if_locked to avoid long waits
+			safe_document_update("Address", address_name, update_address_links, skip_if_locked=True)
 
 	def create_customer_contact(self, shopify_customer: dict[str, Any]) -> None:
 		if not (shopify_customer.get("first_name") and shopify_customer.get("email")):
