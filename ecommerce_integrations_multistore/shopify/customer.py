@@ -119,22 +119,68 @@ class ShopifyCustomer(EcommerceCustomer):
 	def _add_store_link_direct(self, customer_doc) -> None:
 		"""Add customer-store link to multi-store child table using customer doc directly."""
 		
-		# Check if link already exists
-		existing = False
-		for link in customer_doc.get("shopify_store_customer_links", []):
-			if link.store == self.store_name and link.shopify_customer_id == self.customer_id:
-				existing = True
-				break
+		# First, do a quick database check to see if link already exists
+		link_exists = frappe.db.exists({
+			"doctype": "Shopify Customer Store Link",
+			"parent": customer_doc.name,
+			"parenttype": "Customer",
+			"store": self.store_name,
+			"shopify_customer_id": self.customer_id
+		})
 		
-		if not existing:
+		if link_exists:
+			# Link already exists, no need to update
+			return
+		
+		# Try to add the link with minimal locking
+		try:
+			# Create the child record directly
+			link_doc = frappe.get_doc({
+				"doctype": "Shopify Customer Store Link",
+				"parent": customer_doc.name,
+				"parenttype": "Customer",
+				"parentfield": "shopify_store_customer_links",
+				"store": self.store_name,
+				"shopify_customer_id": self.customer_id,
+				"last_synced_on": frappe.utils.now(),
+			})
+			link_doc.insert(ignore_permissions=True)
+			
+			# Update the modified timestamp of parent
+			frappe.db.set_value(
+				"Customer", 
+				customer_doc.name, 
+				"modified", 
+				frappe.utils.now(),
+				update_modified=False
+			)
+			
+			frappe.db.commit()
+			
+		except frappe.DuplicateEntryError:
+			# Another process already added this link, that's fine
+			pass
+		except Exception as e:
+			# Fall back to the safe update method if direct insert fails
+			frappe.log_error(
+				message=f"Direct link insert failed for {customer_doc.name}, falling back to safe update: {str(e)}",
+				title="Customer Link Insert Warning"
+			)
+			
 			def update_customer_links(doc):
+				# Check again if link exists (in case it was added while we were trying)
+				for link in doc.get("shopify_store_customer_links", []):
+					if link.store == self.store_name and str(link.shopify_customer_id) == str(self.customer_id):
+						return  # Already exists
+				
 				doc.append("shopify_store_customer_links", {
 					"store": self.store_name,
 					"shopify_customer_id": self.customer_id,
 					"last_synced_on": frappe.utils.now(),
 				})
 			
-			safe_document_update("Customer", customer_doc.name, update_customer_links)
+			# Use skip_if_locked to avoid long waits
+			safe_document_update("Customer", customer_doc.name, update_customer_links, skip_if_locked=True)
 
 	def create_customer_address(
 		self,
