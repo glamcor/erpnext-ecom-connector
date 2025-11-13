@@ -624,8 +624,30 @@ def assign_power_supplies(invoice, shopify_order):
 	    invoice: Sales Invoice document
 	    shopify_order: Shopify order data
 	"""
-	from ecommerce_integrations_multistore.shopify.doctype.power_supply_mapping.power_supply_mapping import PowerSupplyMapping
-	from ecommerce_integrations_multistore.shopify.doctype.product_power_supply_config.product_power_supply_config import ProductPowerSupplyConfig
+	try:
+		# Check if the new DocTypes exist before importing
+		if not frappe.db.exists("DocType", "Power Supply Mapping"):
+			frappe.log_error(
+				message="Power Supply Mapping DocType not found. Please update the app.",
+				title="Power Supply Configuration Missing"
+			)
+			return
+			
+		if not frappe.db.exists("DocType", "Product Power Supply Config"):
+			frappe.log_error(
+				message="Product Power Supply Config DocType not found. Please update the app.",
+				title="Power Supply Configuration Missing"
+			)
+			return
+			
+		from ecommerce_integrations_multistore.shopify.doctype.power_supply_mapping.power_supply_mapping import PowerSupplyMapping
+		from ecommerce_integrations_multistore.shopify.doctype.product_power_supply_config.product_power_supply_config import ProductPowerSupplyConfig
+	except ImportError as e:
+		frappe.log_error(
+			message=f"Failed to import power supply configuration: {str(e)}",
+			title="Power Supply Import Error"
+		)
+		return
 	
 	shipping_address = shopify_order.get("shipping_address", {})
 	country_code = shipping_address.get("country_code", "").upper()
