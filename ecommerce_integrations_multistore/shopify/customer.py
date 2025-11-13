@@ -73,13 +73,24 @@ class ShopifyCustomer(EcommerceCustomer):
 			)
 			
 			if existing_customer and not existing_customer.get(self.customer_id_field):
-				# Customer exists but doesn't have Shopify ID - update it
-				with document_lock("Customer", existing_customer.name):
+				# Customer exists but doesn't have Shopify ID - try to update it
+				try:
+					# Use a quick update without locking for this simple field update
 					frappe.db.set_value(
 						"Customer", 
 						existing_customer.name, 
 						self.customer_id_field, 
-						self.customer_id
+						self.customer_id,
+						update_modified=False
+					)
+					frappe.db.commit()
+					customer_doc = frappe.get_doc("Customer", existing_customer.name)
+				except Exception as e:
+					# If update fails (likely due to concurrent update), just get the customer
+					# Another process probably already set the Shopify ID
+					frappe.log_error(
+						message=f"Failed to set Shopify ID for customer {existing_customer.name}: {str(e)}. Will proceed with existing customer.",
+						title="Customer Shopify ID Update"
 					)
 					customer_doc = frappe.get_doc("Customer", existing_customer.name)
 			elif existing_customer:
