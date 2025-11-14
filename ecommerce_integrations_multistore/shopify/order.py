@@ -216,95 +216,95 @@ def update_draft_invoice(invoice_name, shopify_order, store_name, retry_count=0)
 		# Only update if it's still a draft
 		if invoice.docstatus != 0:
 			frappe.throw("Cannot update submitted or cancelled invoice")
-	
-	# Get the store settings
-	setting = frappe.get_doc(STORE_DOCTYPE, store_name) if store_name else None
-	if not setting:
-		frappe.throw(f"Store settings not found for {store_name}")
-	
-	# Preserve original dates before clearing items
-	original_posting_date = invoice.posting_date
-	original_due_date = invoice.due_date
-	
-	# Clear existing items and taxes
-	invoice.items = []
-	invoice.taxes = []
-	
-	# Re-process items with updated quantities and prices
-	items = get_order_items(
-		shopify_order.get("line_items"),
-		setting,
-		getdate(shopify_order.get("created_at")),
-		taxes_inclusive=shopify_order.get("taxes_included"),
-		store_name=store_name,
-	)
-	
-	if not items:
-		frappe.throw("No items found in updated order")
-	
-	# Re-process taxes
-	taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
-	
-	# Add items and taxes using append method to create proper child documents
-	for item in items:
-		invoice.append("items", item)
-	
-	for tax in taxes:
-		invoice.append("taxes", tax)
-	
-	# Update financial status
-	invoice.set(ORDER_STATUS_FIELD, shopify_order.get("financial_status"))
-	
-	# Update remarks if note changed
-	invoice.remarks = shopify_order.get("note") or ""
-	
-	# Restore original dates (clearing items might have reset them)
-	invoice.posting_date = original_posting_date
-	invoice.due_date = original_due_date
-	
-	# Ensure due date is not before posting date
-	if getdate(invoice.due_date) < getdate(invoice.posting_date):
-		invoice.due_date = invoice.posting_date
-		frappe.log_error(
-			message=f"Adjusted due date to match posting date: {invoice.posting_date}",
-			title="Due Date Adjustment"
+		
+		# Get the store settings
+		setting = frappe.get_doc(STORE_DOCTYPE, store_name) if store_name else None
+		if not setting:
+			frappe.throw(f"Store settings not found for {store_name}")
+		
+		# Preserve original dates before clearing items
+		original_posting_date = invoice.posting_date
+		original_due_date = invoice.due_date
+		
+		# Clear existing items and taxes
+		invoice.items = []
+		invoice.taxes = []
+		
+		# Re-process items with updated quantities and prices
+		items = get_order_items(
+			shopify_order.get("line_items"),
+			setting,
+			getdate(shopify_order.get("created_at")),
+			taxes_inclusive=shopify_order.get("taxes_included"),
+			store_name=store_name,
 		)
-	
-	# Update totals
-	invoice.run_method("calculate_taxes_and_totals")
-	
-	# Final date check after calculate_taxes_and_totals (it might change dates)
-	if getdate(invoice.due_date) < getdate(invoice.posting_date):
-		invoice.due_date = invoice.posting_date
-	
-	# Update tags
-	if shopify_order.get("tags"):
-		_sync_order_tags(invoice, shopify_order.get("tags"))
-	
-	# Save the updated invoice with validation bypass for date issues
-	try:
-		invoice.save(ignore_permissions=True)
-	except frappe.ValidationError as e:
-		if "Due Date cannot be before" in str(e):
-			# Force set due date to posting date and try again
+		
+		if not items:
+			frappe.throw("No items found in updated order")
+		
+		# Re-process taxes
+		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
+		
+		# Add items and taxes using append method to create proper child documents
+		for item in items:
+			invoice.append("items", item)
+		
+		for tax in taxes:
+			invoice.append("taxes", tax)
+		
+		# Update financial status
+		invoice.set(ORDER_STATUS_FIELD, shopify_order.get("financial_status"))
+		
+		# Update remarks if note changed
+		invoice.remarks = shopify_order.get("note") or ""
+		
+		# Restore original dates (clearing items might have reset them)
+		invoice.posting_date = original_posting_date
+		invoice.due_date = original_due_date
+		
+		# Ensure due date is not before posting date
+		if getdate(invoice.due_date) < getdate(invoice.posting_date):
 			invoice.due_date = invoice.posting_date
-			invoice.flags.ignore_validate = True
-			invoice.flags.ignore_mandatory = True
+			frappe.log_error(
+				message=f"Adjusted due date to match posting date: {invoice.posting_date}",
+				title="Due Date Adjustment"
+			)
+		
+		# Update totals
+		invoice.run_method("calculate_taxes_and_totals")
+		
+		# Final date check after calculate_taxes_and_totals (it might change dates)
+		if getdate(invoice.due_date) < getdate(invoice.posting_date):
+			invoice.due_date = invoice.posting_date
+		
+		# Update tags
+		if shopify_order.get("tags"):
+			_sync_order_tags(invoice, shopify_order.get("tags"))
+		
+		# Save the updated invoice with validation bypass for date issues
+		try:
 			invoice.save(ignore_permissions=True)
-		else:
-			raise
-	
-	# Log the update details
-	frappe.log_error(
-		message=(
-			f"Updated draft invoice {invoice_name}:\n"
-			f"Items: {len(items)}\n"
-			f"Total: {invoice.grand_total}\n"
-			f"Shopify Total: {shopify_order.get('total_price')}"
-		),
-		title="Draft Invoice Updated"
-	)
-	
+		except frappe.ValidationError as e:
+			if "Due Date cannot be before" in str(e):
+				# Force set due date to posting date and try again
+				invoice.due_date = invoice.posting_date
+				invoice.flags.ignore_validate = True
+				invoice.flags.ignore_mandatory = True
+				invoice.save(ignore_permissions=True)
+			else:
+				raise
+		
+		# Log the update details
+		frappe.log_error(
+			message=(
+				f"Updated draft invoice {invoice_name}:\n"
+				f"Items: {len(items)}\n"
+				f"Total: {invoice.grand_total}\n"
+				f"Shopify Total: {shopify_order.get('total_price')}"
+			),
+			title="Draft Invoice Updated"
+		)
+		
 		return invoice
 	
 	except frappe.TimestampMismatchError:
