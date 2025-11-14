@@ -74,8 +74,18 @@ def auto_create_delivery_note(doc, method=None):
 	    doc: Sales Invoice document
 	    method: Hook method name (not used)
 	"""
+	# Debug log
+	frappe.log_error(
+		message=f"auto_create_delivery_note called for invoice {doc.name}, ORDER_ID_FIELD: {doc.get(ORDER_ID_FIELD)}",
+		title="Shopify Hook Debug"
+	)
+	
 	# Check if this is a Shopify invoice
 	if not doc.get(ORDER_ID_FIELD):
+		frappe.log_error(
+			message=f"Invoice {doc.name} is not a Shopify invoice - no {ORDER_ID_FIELD} field",
+			title="Shopify Hook Skipped"
+		)
 		return
 	
 	# Check if delivery note already exists for this store
@@ -92,6 +102,10 @@ def auto_create_delivery_note(doc, method=None):
 	
 	if existing_dn:
 		# Delivery Note already exists
+		frappe.log_error(
+			message=f"Delivery Note {existing_dn} already exists for invoice {doc.name}",
+			title="Shopify Hook - DN Exists"
+		)
 		return
 	
 	try:
@@ -172,10 +186,19 @@ def create_payment_entry_for_invoice(invoice, setting):
 	    invoice: Sales Invoice document
 	    setting: Shopify Store settings
 	"""
+	frappe.log_error(
+		message=f"create_payment_entry_for_invoice called for invoice {invoice.name}",
+		title="Payment Entry Creation Start"
+	)
+	
 	try:
 		# Get the Shopify order data
 		order_id = invoice.get(ORDER_ID_FIELD)
 		if not order_id:
+			frappe.log_error(
+				message=f"No ORDER_ID_FIELD on invoice {invoice.name}",
+				title="Payment Entry Skipped - No Order ID"
+			)
 			return
 		
 		# Import ORDER_STATUS_FIELD constant
