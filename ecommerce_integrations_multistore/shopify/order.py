@@ -343,12 +343,57 @@ def create_sales_order(shopify_order, setting, company=None):
 			shopify_order, setting
 		)
 		
+		# Get billing and shipping addresses
+		customer_address = None
+		shipping_address_name = None
+		
+		# Look up addresses by Shopify address ID or create address title
+		if shopify_order.get("billing_address"):
+			billing_addr = shopify_order.get("billing_address")
+			# Try to find by Shopify address ID first
+			if billing_addr.get("id"):
+				customer_address = frappe.db.get_value(
+					"Address",
+					{"shopify_address_id": billing_addr.get("id")},
+					"name"
+				)
+			# If not found, try by address title
+			if not customer_address:
+				# Create expected address title format
+				address_title = f"{customer}-Billing"
+				customer_address = frappe.db.get_value(
+					"Address",
+					{"address_title": address_title},
+					"name"
+				)
+		
+		if shopify_order.get("shipping_address"):
+			shipping_addr = shopify_order.get("shipping_address")
+			# Try to find by Shopify address ID first
+			if shipping_addr.get("id"):
+				shipping_address_name = frappe.db.get_value(
+					"Address",
+					{"shopify_address_id": shipping_addr.get("id")},
+					"name"
+				)
+			# If not found, try by address title
+			if not shipping_address_name:
+				# Create expected address title format
+				address_title = f"{customer}-Shipping"
+				shipping_address_name = frappe.db.get_value(
+					"Address",
+					{"address_title": address_title},
+					"name"
+				)
+		
 		so_dict = {
 			"doctype": "Sales Order",
 			"naming_series": setting.sales_order_series or "SO-Shopify-",
 			ORDER_ID_FIELD: str(shopify_order.get("id")),
 			ORDER_NUMBER_FIELD: shopify_order.get("name"),
 			"customer": customer,
+			"customer_address": customer_address,
+			"shipping_address_name": shipping_address_name,
 			"transaction_date": getdate(shopify_order.get("created_at")) or nowdate(),
 			"delivery_date": getdate(shopify_order.get("created_at")) or nowdate(),
 			"company": setting.company,
@@ -509,23 +554,44 @@ def create_sales_invoice(shopify_order, setting, company=None):
 		billing_address = None
 		shipping_address = None
 		
-		# TODO: Fix address assignment - get_address_doc not implemented
-		# For now, leave addresses as None
-		# if shopify_order.get("billing_address"):
-		# 	billing_address = get_address_doc(
-		# 		shopify_order.get("billing_address"),
-		# 		customer,
-		# 		"Billing",
-		# 		store_name=store_name
-		# 	)
+		# Look up addresses by Shopify address ID or create address title
+		if shopify_order.get("billing_address"):
+			billing_addr = shopify_order.get("billing_address")
+			# Try to find by Shopify address ID first
+			if billing_addr.get("id"):
+				billing_address = frappe.db.get_value(
+					"Address",
+					{"shopify_address_id": billing_addr.get("id")},
+					"name"
+				)
+			# If not found, try by address title
+			if not billing_address:
+				# Create expected address title format
+				address_title = f"{customer}-Billing"
+				billing_address = frappe.db.get_value(
+					"Address",
+					{"address_title": address_title},
+					"name"
+				)
 		
-		# if shopify_order.get("shipping_address"):
-		# 	shipping_address = get_address_doc(
-		# 		shopify_order.get("shipping_address"),
-		# 		customer,
-		# 		"Shipping",
-		# 		store_name=store_name
-		# 	)
+		if shopify_order.get("shipping_address"):
+			shipping_addr = shopify_order.get("shipping_address")
+			# Try to find by Shopify address ID first
+			if shipping_addr.get("id"):
+				shipping_address = frappe.db.get_value(
+					"Address",
+					{"shopify_address_id": shipping_addr.get("id")},
+					"name"
+				)
+			# If not found, try by address title
+			if not shipping_address:
+				# Create expected address title format
+				address_title = f"{customer}-Shipping"
+				shipping_address = frappe.db.get_value(
+					"Address",
+					{"address_title": address_title},
+					"name"
+				)
 		
 		si_dict = {
 			"doctype": "Sales Invoice",
