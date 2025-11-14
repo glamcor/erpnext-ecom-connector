@@ -243,13 +243,31 @@ def update_draft_invoice(invoice_name, shopify_order, store_name):
 	# Update remarks if note changed
 	invoice.remarks = shopify_order.get("note") or ""
 	
-	# Update dates to ensure due_date is not before posting_date
-	posting_date = getdate(shopify_order.get("created_at")) or nowdate()
-	invoice.posting_date = posting_date
-	invoice.due_date = posting_date  # Set due date same as posting date to avoid validation error
+	# Don't change posting_date during updates - keep the original
+	# Just ensure due_date is not before posting_date
+	current_posting_date = getdate(invoice.posting_date)
+	current_due_date = getdate(invoice.due_date)
+	
+	# Debug log the dates
+	frappe.log_error(
+		message=f"Date check - Posting: {current_posting_date}, Due: {current_due_date}",
+		title="Invoice Date Debug"
+	)
+	
+	# Ensure due date is not before posting date
+	if current_due_date < current_posting_date:
+		invoice.due_date = invoice.posting_date
+		frappe.log_error(
+			message=f"Adjusted due date from {current_due_date} to {invoice.posting_date}",
+			title="Due Date Adjustment"
+		)
 	
 	# Update totals
 	invoice.run_method("calculate_taxes_and_totals")
+	
+	# Final date check after calculate_taxes_and_totals (it might change dates)
+	if getdate(invoice.due_date) < getdate(invoice.posting_date):
+		invoice.due_date = invoice.posting_date
 	
 	# Update tags
 	if shopify_order.get("tags"):
