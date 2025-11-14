@@ -593,6 +593,12 @@ def create_sales_invoice(shopify_order, setting, company=None):
 					"name"
 				)
 		
+		# Get default debit_to account for the company
+		debit_to = frappe.get_cached_value("Company", setting.company, "default_receivable_account")
+		
+		# Get company currency
+		currency = frappe.get_cached_value("Company", setting.company, "default_currency")
+		
 		si_dict = {
 			"doctype": "Sales Invoice",
 			"naming_series": setting.sales_invoice_series or "SI-Shopify-",
@@ -605,6 +611,8 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			"posting_date": getdate(shopify_order.get("created_at")) or nowdate(),
 			"due_date": getdate(shopify_order.get("created_at")) or nowdate(),
 			"company": setting.company,
+			"currency": currency or "USD",
+			"debit_to": debit_to,
 			"selling_price_list": get_dummy_price_list(),
 			"ignore_pricing_rule": 1,
 			"items": items,
@@ -938,6 +946,10 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 		# Get income account from Item, Item Group, or Company
 		income_account = _get_income_account(item_code, setting.company)
 		
+		# Get UOM from item master if not provided
+		item_doc = frappe.get_doc("Item", item_code)
+		uom = shopify_item.get("uom") or item_doc.stock_uom or "Nos"
+		
 		# Build item dict
 		item_dict = {
 			"item_code": item_code,
@@ -945,7 +957,8 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 			"rate": _get_item_price(shopify_item, taxes_inclusive),
 			"delivery_date": delivery_date,
 			"qty": shopify_item.get("quantity"),
-			"stock_uom": shopify_item.get("uom") or "Nos",
+			"stock_uom": uom,
+			"uom": uom,  # Sales Invoice uses 'uom' field
 			"warehouse": setting.warehouse,
 			ORDER_ITEM_DISCOUNT_FIELD: (
 				_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
