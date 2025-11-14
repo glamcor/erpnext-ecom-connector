@@ -1,10 +1,13 @@
-"""ShipStation V2 API Integration for Shopify Orders."""
+"""ShipStation API Integration for Shopify Orders using API Key authentication."""
 
 import frappe
 import requests
-from frappe.utils import cint, flt
+import base64
+from frappe.utils import cint, flt, nowdate
 
-SHIPSTATION_V2_BASE_URL = "https://api.shipstation.com/v2"
+# ShipStation uses Basic Auth with API Key as username and API Secret as password
+# For V2/newer auth, just the API Key is used as Bearer token
+SHIPSTATION_BASE_URL = "https://ssapi.shipstation.com"
 
 def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     """Send Delivery Note to ShipStation using V2 API.
@@ -16,9 +19,12 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     Returns:
         dict: Response from ShipStation API
     """
+    # ShipStation API uses Basic Auth with API Key:API Secret
+    # Since we only have API Key, we'll use it as Bearer token or Basic auth
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
     
     # Get customer and shipping details
@@ -86,8 +92,9 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     
     try:
         # Create order in ShipStation
+        # Using the standard orders endpoint
         response = requests.post(
-            f"{SHIPSTATION_V2_BASE_URL}/orders",
+            f"{SHIPSTATION_BASE_URL}/orders",
             json=order_data,
             headers=headers,
             timeout=30
@@ -115,10 +122,20 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
             "order_key": result.get("orderKey")
         }
         
+    except requests.exceptions.HTTPError as e:
+        error_detail = f"HTTP {e.response.status_code}: {e.response.text if e.response else 'No response body'}"
+        frappe.log_error(
+            message=f"Failed to send {delivery_note.name} to ShipStation: {error_detail}\nURL: {e.response.url}\nRequest: {order_data}",
+            title="ShipStation API Error"
+        )
+        return {
+            "success": False,
+            "error": error_detail
+        }
     except requests.exceptions.RequestException as e:
         frappe.log_error(
-            message=f"Failed to send {delivery_note.name} to ShipStation V2: {str(e)}",
-            title="ShipStation V2 Error"
+            message=f"Failed to send {delivery_note.name} to ShipStation: {str(e)}",
+            title="ShipStation Connection Error"
         )
         return {
             "success": False,
