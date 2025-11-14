@@ -86,13 +86,15 @@ def auto_create_delivery_note(doc, method=None):
 		title="Shopify Hook Debug"
 	)
 	
-	# Check if this is a Shopify invoice
-	if not doc.get(ORDER_ID_FIELD):
-		frappe.log_error(
-			message=f"Invoice {doc.name} is not a Shopify invoice - no {ORDER_ID_FIELD} field",
-			title="Shopify Hook Skipped"
-		)
-		return
+	# Wrap EVERYTHING in try-catch to find the issue
+	try:
+		# Check if this is a Shopify invoice
+		if not doc.get(ORDER_ID_FIELD):
+			frappe.log_error(
+				message=f"Invoice {doc.name} is not a Shopify invoice - no {ORDER_ID_FIELD} field",
+				title="Shopify Hook Skipped"
+			)
+			return
 	
 	# Wrap entire function in try-catch to catch any error
 	try:
@@ -209,6 +211,12 @@ def auto_create_delivery_note(doc, method=None):
 		frappe.log_error(
 			message=f"Failed to auto-create delivery note for invoice {doc.name}: {str(e)}\n{frappe.get_traceback()}",
 			title="Auto Delivery Note Error - Full Trace"
+		)
+	except Exception as outer_e:
+		# Catch ANY exception in the entire function
+		frappe.log_error(
+			message=f"CRITICAL ERROR in auto_create_delivery_note for {doc.name}: {str(outer_e)}\n{frappe.get_traceback()}",
+			title="DN Hook Critical Error"
 		)
 
 
