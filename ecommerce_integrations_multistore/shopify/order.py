@@ -301,9 +301,8 @@ def analyze_order_changes(shopify_order, invoice_name, store_name):
 		if invoice.get("shopify_note") != current_note:
 			changes.append("Note updated")
 		
-		# Check updated_at timestamp
+		# Store updated_at separately (not a "change" that requires update)
 		shopify_updated = shopify_order.get("updated_at", "")
-		changes.append(f"Last updated: {shopify_updated}")
 		
 		# Check for refunds
 		if shopify_order.get("refunds") and len(shopify_order.get("refunds", [])) > 0:
@@ -370,6 +369,12 @@ def handle_order_update(payload, request_id=None, store_name=None):
 	if existing_invoice:
 		# Order already processed, check what changed
 		changes = analyze_order_changes(order, existing_invoice.name, store_name)
+		
+		# Debug log
+		frappe.log_error(
+			message=f"Order update check - Invoice: {existing_invoice.name}, Status: {existing_invoice.docstatus}, Changes detected: {len(changes) if changes else 0}, Changes: {changes}",
+			title="Order Update Debug"
+		)
 		
 		# If invoice is still draft and there are changes, update it
 		if existing_invoice.docstatus == 0 and changes:
