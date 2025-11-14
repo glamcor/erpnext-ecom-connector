@@ -88,27 +88,28 @@ def auto_create_delivery_note(doc, method=None):
 		)
 		return
 	
-	# Check if delivery note already exists for this store
-	dn_filters = {ORDER_ID_FIELD: doc.get(ORDER_ID_FIELD)}
-	store_name = doc.get(STORE_LINK_FIELD)
-	if store_name:
-		dn_filters[STORE_LINK_FIELD] = store_name
-		
-	existing_dn = frappe.db.get_value(
-		"Delivery Note",
-		dn_filters,
-		"name"
-	)
-	
-	if existing_dn:
-		# Delivery Note already exists
-		frappe.log_error(
-			message=f"Delivery Note {existing_dn} already exists for invoice {doc.name}",
-			title="Shopify Hook - DN Exists"
-		)
-		return
-	
+	# Wrap entire function in try-catch to catch any error
 	try:
+		# Check if delivery note already exists for this store
+		dn_filters = {ORDER_ID_FIELD: doc.get(ORDER_ID_FIELD)}
+		store_name = doc.get(STORE_LINK_FIELD)
+		if store_name:
+			dn_filters[STORE_LINK_FIELD] = store_name
+			
+		existing_dn = frappe.db.get_value(
+			"Delivery Note",
+			dn_filters,
+			"name"
+		)
+		
+		if existing_dn:
+			# Delivery Note already exists
+			frappe.log_error(
+				message=f"Delivery Note {existing_dn} already exists for invoice {doc.name}",
+				title="Shopify Hook - DN Exists"
+			)
+			return
+		
 		# Import here to avoid circular dependency
 		from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_delivery_note
 		
@@ -174,8 +175,8 @@ def auto_create_delivery_note(doc, method=None):
 	except Exception as e:
 		# Log error but don't fail the invoice submission
 		frappe.log_error(
-			message=f"Failed to auto-create delivery note for invoice {doc.name}: {str(e)}",
-			title="Auto Delivery Note Error"
+			message=f"Failed to auto-create delivery note for invoice {doc.name}: {str(e)}\n{frappe.get_traceback()}",
+			title="Auto Delivery Note Error - Full Trace"
 		)
 
 
