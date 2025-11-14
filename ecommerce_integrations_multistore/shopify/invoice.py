@@ -95,9 +95,7 @@ def auto_create_delivery_note(doc, method=None):
 				title="Shopify Hook Skipped"
 			)
 			return
-	
-	# Wrap entire function in try-catch to catch any error
-	try:
+		
 		frappe.log_error(
 			message=f"Step 1: Starting delivery note check",
 			title="DN Creation Debug 1"
@@ -209,13 +207,7 @@ def auto_create_delivery_note(doc, method=None):
 	except Exception as e:
 		# Log error but don't fail the invoice submission
 		frappe.log_error(
-			message=f"Failed to auto-create delivery note for invoice {doc.name}: {str(e)}\n{frappe.get_traceback()}",
-			title="Auto Delivery Note Error - Full Trace"
-		)
-	except Exception as outer_e:
-		# Catch ANY exception in the entire function
-		frappe.log_error(
-			message=f"CRITICAL ERROR in auto_create_delivery_note for {doc.name}: {str(outer_e)}\n{frappe.get_traceback()}",
+			message=f"CRITICAL ERROR in auto_create_delivery_note for {doc.name}: {str(e)}\n{frappe.get_traceback()}",
 			title="DN Hook Critical Error"
 		)
 
