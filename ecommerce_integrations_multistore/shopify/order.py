@@ -243,6 +243,11 @@ def update_draft_invoice(invoice_name, shopify_order, store_name):
 	# Update remarks if note changed
 	invoice.remarks = shopify_order.get("note") or ""
 	
+	# Update dates to ensure due_date is not before posting_date
+	posting_date = getdate(shopify_order.get("created_at")) or nowdate()
+	invoice.posting_date = posting_date
+	invoice.due_date = posting_date  # Set due date same as posting date to avoid validation error
+	
 	# Update totals
 	invoice.run_method("calculate_taxes_and_totals")
 	
@@ -359,6 +364,12 @@ def handle_order_update(payload, request_id=None, store_name=None):
 	frappe.flags.request_id = request_id
 	
 	order_id = cstr(order["id"])
+	
+	# Initial debug log
+	frappe.log_error(
+		message=f"Order update webhook received - Order: {order.get('name')}, ID: {order_id}, Store: {store_name}",
+		title="Order Update Webhook"
+	)
 	
 	# Check if we already have a Sales Invoice for this order in this store
 	existing_invoice_filters = {ORDER_ID_FIELD: order_id}
