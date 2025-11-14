@@ -154,7 +154,26 @@ def send_to_shipstation(delivery_note, setting):
 	    setting: Shopify Store settings
 	"""
 	try:
-		# Check if ShipStation integration is installed
+		# First try V2 integration
+		from ecommerce_integrations_multistore.shopify.shipstation_v2 import update_shipstation_integration_for_v2
+		
+		# Use V2 API
+		result = update_shipstation_integration_for_v2(delivery_note, setting)
+		
+		if result.get("success"):
+			frappe.log_error(
+				message=f"Successfully sent {delivery_note.name} to ShipStation V2. Order ID: {result.get('order_id')}",
+				title="ShipStation V2 Success"
+			)
+			return
+		
+		# If V2 fails, try V1 as fallback
+		frappe.log_error(
+			message=f"ShipStation V2 failed: {result.get('error')}. Trying V1 fallback...",
+			title="ShipStation V2 Failed - Trying V1"
+		)
+		
+		# Check if old ShipStation integration is installed
 		if frappe.db.exists("Module Def", "ShipStation Integration"):
 			# Import ShipStation functions if available
 			from shipstation_integration.api import send_order_to_shipstation
@@ -167,27 +186,27 @@ def send_to_shipstation(delivery_note, setting):
 				if result.get("success"):
 					delivery_note.add_comment(
 						comment_type="Info",
-						text=f"Order sent to ShipStation. Order ID: {result.get('order_id')}"
+						text=f"Order sent to ShipStation (V1). Order ID: {result.get('order_id')}"
 					)
 					frappe.log_error(
-						message=f"Delivery Note {delivery_note.name} sent to ShipStation",
-						title="ShipStation Integration Success"
+						message=f"Delivery Note {delivery_note.name} sent to ShipStation V1",
+						title="ShipStation V1 Success (Fallback)"
 					)
 				else:
 					frappe.log_error(
-						message=f"Failed to send {delivery_note.name} to ShipStation: {result.get('error')}",
-						title="ShipStation Integration Error"
+						message=f"Failed to send {delivery_note.name} to ShipStation V1: {result.get('error')}",
+						title="ShipStation V1 Error"
 					)
 			else:
 				frappe.log_error(
 					message="ShipStation API key not configured for this store",
 					title="ShipStation Configuration Missing"
 				)
-	except ImportError:
-		# ShipStation integration not installed
+	except ImportError as e:
+		# Module not found
 		frappe.log_error(
-			message="ShipStation Integration app is not installed",
-			title="ShipStation Integration Not Found"
+			message=f"ShipStation module import error: {str(e)}",
+			title="ShipStation Import Error"
 		)
 	except Exception as e:
 		# Log any other errors but don't fail the delivery note creation
