@@ -192,6 +192,78 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 			)
 
 
+def update_draft_invoice(invoice_name, shopify_order, store_name):
+	"""Update a draft Sales Invoice with new data from Shopify order.
+	
+	Args:
+	    invoice_name: Name of the Sales Invoice to update
+	    shopify_order: Updated Shopify order data
+	    store_name: Store name for multi-store support
+	"""
+	invoice = frappe.get_doc("Sales Invoice", invoice_name)
+	
+	# Only update if it's still a draft
+	if invoice.docstatus != 0:
+		frappe.throw("Cannot update submitted or cancelled invoice")
+	
+	# Get the store settings
+	setting = frappe.get_doc(STORE_DOCTYPE, store_name) if store_name else None
+	if not setting:
+		frappe.throw(f"Store settings not found for {store_name}")
+	
+	# Clear existing items and taxes
+	invoice.items = []
+	invoice.taxes = []
+	
+	# Re-process items with updated quantities and prices
+	items = get_order_items(
+		shopify_order.get("line_items"),
+		setting,
+		getdate(shopify_order.get("created_at")),
+		taxes_inclusive=shopify_order.get("taxes_included"),
+		store_name=store_name,
+	)
+	
+	if not items:
+		frappe.throw("No items found in updated order")
+	
+	# Re-process taxes
+	taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
+	
+	# Update invoice fields
+	invoice.items = items
+	invoice.taxes = taxes
+	
+	# Update financial status
+	invoice.set(ORDER_STATUS_FIELD, shopify_order.get("financial_status"))
+	
+	# Update remarks if note changed
+	invoice.remarks = shopify_order.get("note") or ""
+	
+	# Update totals
+	invoice.run_method("calculate_taxes_and_totals")
+	
+	# Update tags
+	if shopify_order.get("tags"):
+		_sync_order_tags(invoice, shopify_order.get("tags"))
+	
+	# Save the updated invoice
+	invoice.save(ignore_permissions=True)
+	
+	# Log the update details
+	frappe.log_error(
+		message=(
+			f"Updated draft invoice {invoice_name}:\n"
+			f"Items: {len(items)}\n"
+			f"Total: {invoice.grand_total}\n"
+			f"Shopify Total: {shopify_order.get('total_price')}"
+		),
+		title="Draft Invoice Updated"
+	)
+	
+	return invoice
+
+
 def analyze_order_changes(shopify_order, invoice_name, store_name):
 	"""Analyze what changed in the Shopify order compared to existing invoice.
 	
@@ -234,10 +306,35 @@ def analyze_order_changes(shopify_order, invoice_name, store_name):
 		if shopify_order.get("refunds") and len(shopify_order.get("refunds", [])) > 0:
 			changes.append(f"Has {len(shopify_order.get('refunds', []))} refund(s)")
 		
-		# Check total price changes (shouldn't happen but good to know)
+		# Check total price changes
 		shopify_total = float(shopify_order.get("total_price", 0))
 		if abs(invoice.grand_total - shopify_total) > 0.01:
 			changes.append(f"Total changed: {invoice.grand_total} → {shopify_total}")
+		
+		# Check line items for quantity/price changes
+		shopify_items = {item.get("sku") or item.get("title"): item for item in shopify_order.get("line_items", [])}
+		invoice_items = {item.item_code: item for item in invoice.items}
+		
+		# Check for quantity changes
+		for sku, shopify_item in shopify_items.items():
+			if sku in invoice_items:
+				invoice_item = invoice_items[sku]
+				if invoice_item.qty != shopify_item.get("quantity"):
+					changes.append(f"Quantity changed for {sku}: {invoice_item.qty} → {shopify_item.get('quantity')}")
+				
+				shopify_rate = float(shopify_item.get("price", 0))
+				if abs(invoice_item.rate - shopify_rate) > 0.01:
+					changes.append(f"Price changed for {sku}: {invoice_item.rate} → {shopify_rate}")
+		
+		# Check for new items
+		new_items = set(shopify_items.keys()) - set(invoice_items.keys())
+		if new_items:
+			changes.append(f"New items added: {', '.join(new_items)}")
+		
+		# Check for removed items
+		removed_items = set(invoice_items.keys()) - set(shopify_items.keys())
+		if removed_items:
+			changes.append(f"Items removed: {', '.join(removed_items)}")
 			
 	except Exception as e:
 		changes.append(f"Error analyzing changes: {str(e)}")
@@ -266,23 +363,41 @@ def handle_order_update(payload, request_id=None, store_name=None):
 	if store_name:
 		existing_invoice_filters[STORE_LINK_FIELD] = store_name
 		
-	existing_invoice = frappe.db.get_value("Sales Invoice", filters=existing_invoice_filters, fieldname="name")
+	existing_invoice = frappe.db.get_value("Sales Invoice", filters=existing_invoice_filters, fieldname=["name", "docstatus"], as_dict=True)
 	if existing_invoice:
 		# Order already processed, check what changed
-		changes = analyze_order_changes(order, existing_invoice, store_name)
+		changes = analyze_order_changes(order, existing_invoice.name, store_name)
 		
-		if changes:
-			# Log what changed but still ignore the update
-			create_shopify_log(
-				status="Info",
-				message=f"Sales invoice already exists for order {order.get('name')}. Changes detected: {', '.join(changes)}",
-				store_name=store_name
-			)
+		# If invoice is still draft and there are changes, update it
+		if existing_invoice.docstatus == 0 and changes:
+			try:
+				# Update the draft invoice with new order data
+				update_draft_invoice(existing_invoice.name, order, store_name)
+				create_shopify_log(
+					status="Success",
+					message=f"Updated draft invoice for order {order.get('name')}. Changes: {', '.join(changes)}",
+					store_name=store_name
+				)
+			except Exception as e:
+				create_shopify_log(
+					status="Error",
+					message=f"Failed to update draft invoice: {str(e)}",
+					exception=e,
+					store_name=store_name
+				)
+		elif existing_invoice.docstatus == 1:
+			# Invoice is submitted, just log the changes
+			if changes:
+				create_shopify_log(
+					status="Info",
+					message=f"Submitted invoice exists for order {order.get('name')}. Cannot update. Changes: {', '.join(changes)}",
+					store_name=store_name
+				)
 		else:
-			# No meaningful changes
+			# No significant changes or invoice is cancelled
 			create_shopify_log(
 				status="Info",
-				message=f"Sales invoice already exists for order {order.get('name')}. No significant changes detected.",
+				message=f"Sales invoice exists for order {order.get('name')}. No action needed.",
 				store_name=store_name
 			)
 		return
