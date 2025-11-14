@@ -142,6 +142,11 @@ def auto_create_delivery_note(doc, method=None):
 			)
 			return
 		
+		frappe.log_error(
+			message=f"Step 6: No existing DN, proceeding to create. Invoice docstatus = {doc.docstatus}",
+			title="DN Creation Debug 6"
+		)
+		
 		# Import here to avoid circular dependency
 		from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_delivery_note
 		
@@ -166,12 +171,31 @@ def auto_create_delivery_note(doc, method=None):
 				# Can't determine store, skip
 				return
 		
+		frappe.log_error(
+			message=f"Step 7: Got store settings. sync_delivery_note = {setting.sync_delivery_note}",
+			title="DN Creation Debug 7"
+		)
+		
 		# Check if auto-create is enabled
 		if not cint(setting.sync_delivery_note):
+			frappe.log_error(
+				message=f"Delivery note sync is disabled for store {store_name}",
+				title="DN Creation Skipped - Disabled"
+			)
 			return
+		
+		frappe.log_error(
+			message=f"Step 8: Creating delivery note for invoice {doc.name}",
+			title="DN Creation Debug 8"
+		)
 		
 		# Create delivery note
 		dn = make_delivery_note(doc.name)
+		
+		frappe.log_error(
+			message=f"Step 9: Created DN object: {dn.name if dn else 'None'}",
+			title="DN Creation Debug 9"
+		)
 		
 		# Copy Shopify fields
 		dn.set(ORDER_ID_FIELD, doc.get(ORDER_ID_FIELD))
