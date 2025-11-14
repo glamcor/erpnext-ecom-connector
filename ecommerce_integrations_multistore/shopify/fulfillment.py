@@ -167,14 +167,18 @@ def send_to_shipstation(delivery_note, setting):
 			)
 			return
 		
-		# If V2 fails, try V1 as fallback
-		frappe.log_error(
-			message=f"ShipStation V2 failed: {result.get('error')}. Trying V1 fallback...",
-			title="ShipStation V2 Failed - Trying V1"
-		)
+		# If V2 fails, log the error but don't try V1 (it's broken)
+		if not result.get("success"):
+			frappe.log_error(
+				message=f"ShipStation V2 failed: {result.get('error')}",
+				title="ShipStation V2 Error"
+			)
 		
-		# Check if old ShipStation integration is installed
-		if frappe.db.exists("Module Def", "ShipStation Integration"):
+		# Skip V1 fallback - it has enum errors and requires api_secret
+		return
+		
+		# V1 code below is disabled
+		if False and frappe.db.exists("Module Def", "ShipStation Integration"):
 			# Import ShipStation functions if available
 			from shipstation_integration.api import send_order_to_shipstation
 			

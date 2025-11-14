@@ -262,6 +262,29 @@
    "mandatory_depends_on": "eval:doc.sync_sales_invoice"
   },
   {
+   "fieldname": "shipstation_section",
+   "fieldtype": "Section Break",
+   "label": "ShipStation Integration",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "shipstation_api_key",
+   "fieldtype": "Password",
+   "label": "ShipStation API Key (V2)",
+   "description": "Your ShipStation Production API Key for V2 API. No API Secret needed for V2."
+  },
+  {
+   "fieldname": "shipstation_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "shipstation_enabled",
+   "fieldtype": "Check",
+   "label": "Enable ShipStation Integration",
+   "default": "0",
+   "description": "Automatically send Delivery Notes to ShipStation when created"
+  },
+  {
    "fieldname": "section_break_22",
    "fieldtype": "Section Break"
   },

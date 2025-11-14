@@ -131,6 +131,14 @@ def update_shipstation_integration_for_v2(delivery_note, setting):
     
     This replaces the old send_to_shipstation function for V2 compatibility.
     """
+    # Check if ShipStation is enabled
+    if not (hasattr(setting, 'shipstation_enabled') and setting.shipstation_enabled):
+        frappe.log_error(
+            message=f"ShipStation integration is disabled for store {setting.name}",
+            title="ShipStation Integration Disabled"
+        )
+        return {"success": False, "error": "ShipStation integration disabled"}
+    
     # Check if ShipStation V2 API key is configured
     if hasattr(setting, 'shipstation_api_key') and setting.shipstation_api_key:
         result = send_delivery_note_to_shipstation_v2(
