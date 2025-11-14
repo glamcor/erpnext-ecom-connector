@@ -192,7 +192,59 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 			)
 
 
-@frappe.whitelist()
+def analyze_order_changes(shopify_order, invoice_name, store_name):
+	"""Analyze what changed in the Shopify order compared to existing invoice.
+	
+	Returns list of change descriptions.
+	"""
+	changes = []
+	
+	try:
+		# Get the existing invoice
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+		
+		# Check financial status
+		if invoice.get(ORDER_STATUS_FIELD) != shopify_order.get("financial_status"):
+			changes.append(f"Financial status: {invoice.get(ORDER_STATUS_FIELD)} → {shopify_order.get('financial_status')}")
+		
+		# Check fulfillment status
+		current_fulfillment = shopify_order.get("fulfillment_status") or "unfulfilled"
+		if invoice.get("shopify_fulfillment_status") != current_fulfillment:
+			changes.append(f"Fulfillment status → {current_fulfillment}")
+		
+		# Check if cancelled
+		if shopify_order.get("cancelled_at") and not invoice.get("shopify_cancelled_at"):
+			changes.append("Order cancelled")
+		
+		# Check tags
+		current_tags = shopify_order.get("tags", "")
+		if invoice.get("shopify_tags") != current_tags:
+			changes.append(f"Tags updated")
+		
+		# Check note
+		current_note = shopify_order.get("note") or ""
+		if invoice.get("shopify_note") != current_note:
+			changes.append("Note updated")
+		
+		# Check updated_at timestamp
+		shopify_updated = shopify_order.get("updated_at", "")
+		changes.append(f"Last updated: {shopify_updated}")
+		
+		# Check for refunds
+		if shopify_order.get("refunds") and len(shopify_order.get("refunds", [])) > 0:
+			changes.append(f"Has {len(shopify_order.get('refunds', []))} refund(s)")
+		
+		# Check total price changes (shouldn't happen but good to know)
+		shopify_total = float(shopify_order.get("total_price", 0))
+		if abs(invoice.grand_total - shopify_total) > 0.01:
+			changes.append(f"Total changed: {invoice.grand_total} → {shopify_total}")
+			
+	except Exception as e:
+		changes.append(f"Error analyzing changes: {str(e)}")
+	
+	return changes
+
+
 def handle_order_update(payload, request_id=None, store_name=None):
 	"""Handle order update webhook from Shopify.
 	
@@ -214,13 +266,25 @@ def handle_order_update(payload, request_id=None, store_name=None):
 	if store_name:
 		existing_invoice_filters[STORE_LINK_FIELD] = store_name
 		
-	if frappe.db.get_value("Sales Invoice", filters=existing_invoice_filters):
-		# Order already processed, ignore update
-		create_shopify_log(
-			status="Invalid",
-			message=f"Sales invoice already exists for order {order.get('name')} in store {store_name}, update ignored",
-			store_name=store_name
-		)
+	existing_invoice = frappe.db.get_value("Sales Invoice", filters=existing_invoice_filters, fieldname="name")
+	if existing_invoice:
+		# Order already processed, check what changed
+		changes = analyze_order_changes(order, existing_invoice, store_name)
+		
+		if changes:
+			# Log what changed but still ignore the update
+			create_shopify_log(
+				status="Info",
+				message=f"Sales invoice already exists for order {order.get('name')}. Changes detected: {', '.join(changes)}",
+				store_name=store_name
+			)
+		else:
+			# No meaningful changes
+			create_shopify_log(
+				status="Info",
+				message=f"Sales invoice already exists for order {order.get('name')}. No significant changes detected.",
+				store_name=store_name
+			)
 		return
 	
 	# Check if we have this order marked as incomplete
@@ -557,40 +621,82 @@ def create_sales_invoice(shopify_order, setting, company=None):
 		# Look up addresses by Shopify address ID or create address title
 		if shopify_order.get("billing_address"):
 			billing_addr = shopify_order.get("billing_address")
+			# Debug log the billing address data
+			frappe.log_error(
+				message=f"Billing address data: {billing_addr}",
+				title="Address Debug - Billing"
+			)
 			# Try to find by Shopify address ID first
 			if billing_addr.get("id"):
+				frappe.log_error(
+					message=f"Looking for billing address with shopify_address_id: {billing_addr.get('id')}",
+					title="Address Lookup Debug"
+				)
 				billing_address = frappe.db.get_value(
 					"Address",
 					{"shopify_address_id": billing_addr.get("id")},
 					"name"
 				)
+				frappe.log_error(
+					message=f"Found billing address by ID: {billing_address}",
+					title="Address Lookup Debug"
+				)
 			# If not found, try by address title
 			if not billing_address:
 				# Create expected address title format
 				address_title = f"{customer}-Billing"
+				frappe.log_error(
+					message=f"Looking for billing address with title: {address_title}",
+					title="Address Lookup Debug"
+				)
 				billing_address = frappe.db.get_value(
 					"Address",
 					{"address_title": address_title},
 					"name"
 				)
+				frappe.log_error(
+					message=f"Found billing address by title: {billing_address}",
+					title="Address Lookup Debug"
+				)
 		
 		if shopify_order.get("shipping_address"):
 			shipping_addr = shopify_order.get("shipping_address")
+			# Debug log the shipping address data
+			frappe.log_error(
+				message=f"Shipping address data: {shipping_addr}",
+				title="Address Debug - Shipping"
+			)
 			# Try to find by Shopify address ID first
 			if shipping_addr.get("id"):
+				frappe.log_error(
+					message=f"Looking for shipping address with shopify_address_id: {shipping_addr.get('id')}",
+					title="Address Lookup Debug"
+				)
 				shipping_address = frappe.db.get_value(
 					"Address",
 					{"shopify_address_id": shipping_addr.get("id")},
 					"name"
 				)
+				frappe.log_error(
+					message=f"Found shipping address by ID: {shipping_address}",
+					title="Address Lookup Debug"
+				)
 			# If not found, try by address title
 			if not shipping_address:
 				# Create expected address title format
 				address_title = f"{customer}-Shipping"
+				frappe.log_error(
+					message=f"Looking for shipping address with title: {address_title}",
+					title="Address Lookup Debug"
+				)
 				shipping_address = frappe.db.get_value(
 					"Address",
 					{"address_title": address_title},
 					"name"
+				)
+				frappe.log_error(
+					message=f"Found shipping address by title: {shipping_address}",
+					title="Address Lookup Debug"
 				)
 		
 		# Get default debit_to account for the company
@@ -621,6 +727,7 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			"is_pos": 0,  # Not point of sale
 			"update_stock": 1,  # Update stock on submission
 			"status": "Draft",  # Ensure draft status
+			"remarks": shopify_order.get("note") or "",  # Add order note to remarks
 		}
 		
 		# Add store reference for multi-store
@@ -682,8 +789,7 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			title="Invoice Total Comparison"
 		)
 
-		if shopify_order.get("note"):
-			si.add_comment(text=f"Order Note: {shopify_order.get('note')}")
+		# Order note is now in the remarks field, no need for separate comment
 		
 		# Sync Shopify tags to ERPNext native tagging system
 		if shopify_order.get("tags"):
@@ -1255,10 +1361,10 @@ def cancel_order(payload, request_id=None, store_name=None):
 		for dn in delivery_notes:
 			frappe.db.set_value("Delivery Note", dn.name, ORDER_STATUS_FIELD, order_status)
 
-		# Cancel invoice if it's still draft and no delivery notes exist
+		# Delete invoice if it's still draft and no delivery notes exist
 		if not delivery_notes and sales_invoice.docstatus == 0:
-			si_doc = frappe.get_doc("Sales Invoice", sales_invoice.name)
-			si_doc.cancel()
+			# Draft invoices should be deleted, not cancelled
+			frappe.delete_doc("Sales Invoice", sales_invoice.name, force=True)
 			frappe.db.commit()
 		elif sales_invoice.docstatus == 1 and not delivery_notes:
 			# If submitted but not delivered, add cancellation comment
