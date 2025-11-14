@@ -877,6 +877,7 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			"due_date": getdate(shopify_order.get("created_at")) or nowdate(),
 			"company": setting.company,
 			"currency": currency or "USD",
+			"price_list_currency": currency or "USD",  # Add price list currency
 			"debit_to": debit_to,
 			"selling_price_list": get_dummy_price_list(),
 			"ignore_pricing_rule": 1,
