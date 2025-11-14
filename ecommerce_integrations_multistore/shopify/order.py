@@ -372,29 +372,96 @@ def analyze_order_changes(shopify_order, invoice_name, store_name):
 			changes.append(f"Total changed: {invoice.grand_total} → {shopify_total}")
 		
 		# Check line items for quantity/price changes
-		shopify_items = {item.get("sku") or item.get("title"): item for item in shopify_order.get("line_items", [])}
-		invoice_items = {item.item_code: item for item in invoice.items}
+		# Build a map of Shopify items by variant_id for accurate matching
+		shopify_items_by_variant = {str(item.get("variant_id")): item for item in shopify_order.get("line_items", []) if item.get("variant_id")}
+		shopify_items_by_sku = {item.get("sku"): item for item in shopify_order.get("line_items", []) if item.get("sku")}
 		
-		# Check for quantity changes
-		for sku, shopify_item in shopify_items.items():
-			if sku in invoice_items:
-				invoice_item = invoice_items[sku]
+		# Build invoice items map with shopify variant ID from description or other fields
+		invoice_items = {}
+		for item in invoice.items:
+			invoice_items[item.item_code] = item
+			# Also check if we stored the variant_id in description or elsewhere
+			if hasattr(item, 'shopify_variant_id') and item.shopify_variant_id:
+				invoice_items[str(item.shopify_variant_id)] = item
+		
+		# Debug log the items comparison
+		frappe.log_error(
+			message=(
+				f"Analyzing items - Shopify variants: {list(shopify_items_by_variant.keys())}, "
+				f"Shopify SKUs: {list(shopify_items_by_sku.keys())}, "
+				f"Invoice items: {list(invoice_items.keys())}"
+			),
+			title="Order Change Analysis Debug"
+		)
+		
+		# Check for quantity/price changes by matching invoice items to Shopify items
+		matched_items = set()
+		for invoice_item in invoice.items:
+			shopify_item = None
+			item_identifier = None
+			
+			# Try to extract Shopify identifiers from description
+			sku_from_desc = None
+			variant_from_desc = None
+			if invoice_item.description:
+				# Parse description like "SKU: ABC123 | Variant: 12345678"
+				import re
+				sku_match = re.search(r'SKU:\s*([^\s|]+)', invoice_item.description)
+				variant_match = re.search(r'Variant:\s*(\d+)', invoice_item.description)
+				if sku_match:
+					sku_from_desc = sku_match.group(1)
+				if variant_match:
+					variant_from_desc = variant_match.group(1)
+			
+			# Try to find matching Shopify item
+			# First try by variant_id from description
+			if variant_from_desc and variant_from_desc in shopify_items_by_variant:
+				shopify_item = shopify_items_by_variant[variant_from_desc]
+				item_identifier = f"variant {variant_from_desc}"
+				matched_items.add(variant_from_desc)
+			
+			# If not found, try by SKU from description
+			if not shopify_item and sku_from_desc and sku_from_desc in shopify_items_by_sku:
+				shopify_item = shopify_items_by_sku[sku_from_desc]
+				item_identifier = f"SKU {sku_from_desc}"
+				matched_items.add(sku_from_desc)
+			
+			# If still not found, try by item_code (might be the SKU)
+			if not shopify_item and invoice_item.item_code in shopify_items_by_sku:
+				shopify_item = shopify_items_by_sku[invoice_item.item_code]
+				item_identifier = f"SKU {invoice_item.item_code}"
+				matched_items.add(invoice_item.item_code)
+			
+			# If we found a match, compare quantities and prices
+			if shopify_item:
+				frappe.log_error(
+					message=f"Comparing {item_identifier} - Invoice qty: {invoice_item.qty}, Shopify qty: {shopify_item.get('quantity')}",
+					title="Item Quantity Comparison"
+				)
+				
 				if invoice_item.qty != shopify_item.get("quantity"):
-					changes.append(f"Quantity changed for {sku}: {invoice_item.qty} → {shopify_item.get('quantity')}")
+					changes.append(f"Quantity changed for {invoice_item.item_name or invoice_item.item_code}: {invoice_item.qty} → {shopify_item.get('quantity')}")
 				
 				shopify_rate = float(shopify_item.get("price", 0))
 				if abs(invoice_item.rate - shopify_rate) > 0.01:
-					changes.append(f"Price changed for {sku}: {invoice_item.rate} → {shopify_rate}")
+					changes.append(f"Price changed for {invoice_item.item_name or invoice_item.item_code}: {invoice_item.rate} → {shopify_rate}")
+			else:
+				# Invoice item not found in Shopify order (item was removed)
+				changes.append(f"Item removed: {invoice_item.item_name or invoice_item.item_code}")
 		
-		# Check for new items
-		new_items = set(shopify_items.keys()) - set(invoice_items.keys())
+		# Check for new items in Shopify that aren't in the invoice
+		all_shopify_identifiers = set(shopify_items_by_variant.keys()) | set(shopify_items_by_sku.keys())
+		new_items = all_shopify_identifiers - matched_items
 		if new_items:
-			changes.append(f"New items added: {', '.join(new_items)}")
-		
-		# Check for removed items
-		removed_items = set(invoice_items.keys()) - set(shopify_items.keys())
-		if removed_items:
-			changes.append(f"Items removed: {', '.join(removed_items)}")
+			new_item_names = []
+			for identifier in new_items:
+				if identifier in shopify_items_by_variant:
+					item = shopify_items_by_variant[identifier]
+				else:
+					item = shopify_items_by_sku.get(identifier)
+				if item:
+					new_item_names.append(item.get("title") or item.get("sku") or identifier)
+			changes.append(f"New items added: {', '.join(new_item_names)}")
 			
 	except Exception as e:
 		changes.append(f"Error analyzing changes: {str(e)}")
@@ -1248,6 +1315,7 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 		item_dict = {
 			"item_code": item_code,
 			"item_name": shopify_item.get("name") or shopify_item.get("title"),
+			"description": f"SKU: {shopify_item.get('sku')} | Variant: {shopify_item.get('variant_id')}",  # Store Shopify identifiers
 			"rate": _get_item_price(shopify_item, taxes_inclusive),
 			"delivery_date": delivery_date,
 			"qty": shopify_item.get("quantity"),
