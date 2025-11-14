@@ -178,31 +178,62 @@ def create_payment_entry_for_invoice(invoice, setting):
 		if not order_id:
 			return
 		
-		# Get the original order data from the integration log
-		order_data = frappe.db.get_value(
-			"Ecommerce Integration Log",
-			{
-				"request_data": ["like", f'%"id": {order_id}%'],
-				"method": ["like", "%sync_sales_order%"],
-				"status": "Success"
-			},
-			"request_data"
-		)
+		# Import ORDER_STATUS_FIELD constant
+		from ecommerce_integrations_multistore.shopify.constants import ORDER_STATUS_FIELD
 		
-		if not order_data:
-			frappe.log_error(
-				message=f"Could not find Shopify order data for invoice {invoice.name}",
-				title="Payment Entry Creation Warning"
+		# First check the invoice's shopify_order_status field
+		financial_status = invoice.get(ORDER_STATUS_FIELD)
+		
+		# If not paid according to the invoice field, check integration logs as fallback
+		if financial_status != "paid":
+			# Get the original order data from the integration log
+			order_data = frappe.db.get_value(
+				"Ecommerce Integration Log",
+				{
+					"request_data": ["like", f'%"id": {order_id}%'],
+					"method": ["like", "%sync_sales_order%"],
+					"status": "Success"
+				},
+				"request_data"
 			)
-			return
-		
-		try:
-			shopify_order = json.loads(order_data)
-		except:
-			return
+			
+			if not order_data:
+				# Try to find from order update logs as well
+				order_data = frappe.db.get_value(
+					"Ecommerce Integration Log",
+					{
+						"request_data": ["like", f'%"id": {order_id}%'],
+						"method": ["like", "%handle_order_update%"],
+						"status": "Success"
+					},
+					"request_data",
+					order="modified desc"
+				)
+			
+			if not order_data:
+				frappe.log_error(
+					message=f"Invoice {invoice.name} has financial status '{financial_status}' - not creating payment entry",
+					title="Payment Entry Skipped - Not Paid"
+				)
+				return
+			
+			try:
+				shopify_order = json.loads(order_data)
+				financial_status = shopify_order.get("financial_status")
+			except:
+				return
+		else:
+			# Create a minimal shopify_order dict for downstream use
+			shopify_order = {
+				"id": order_id,
+				"name": invoice.get(ORDER_NUMBER_FIELD),
+				"financial_status": financial_status,
+				"created_at": invoice.posting_date,
+				"gateway": "shopify"  # Default gateway
+			}
 		
 		# Check if order is paid
-		if shopify_order.get("financial_status") != "paid":
+		if financial_status != "paid":
 			return
 		
 		# Check if payment entry already exists
