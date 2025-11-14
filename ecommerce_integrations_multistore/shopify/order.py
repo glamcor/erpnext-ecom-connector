@@ -230,9 +230,12 @@ def update_draft_invoice(invoice_name, shopify_order, store_name):
 	# Re-process taxes
 	taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
 	
-	# Update invoice fields
-	invoice.items = items
-	invoice.taxes = taxes
+	# Add items and taxes using append method to create proper child documents
+	for item in items:
+		invoice.append("items", item)
+	
+	for tax in taxes:
+		invoice.append("taxes", tax)
 	
 	# Update financial status
 	invoice.set(ORDER_STATUS_FIELD, shopify_order.get("financial_status"))
