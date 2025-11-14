@@ -192,19 +192,30 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 			)
 
 
-def update_draft_invoice(invoice_name, shopify_order, store_name):
+def update_draft_invoice(invoice_name, shopify_order, store_name, retry_count=0):
 	"""Update a draft Sales Invoice with new data from Shopify order.
 	
 	Args:
 	    invoice_name: Name of the Sales Invoice to update
 	    shopify_order: Updated Shopify order data
 	    store_name: Store name for multi-store support
+	    retry_count: Number of retries for handling concurrent modifications
 	"""
-	invoice = frappe.get_doc("Sales Invoice", invoice_name)
+	# Handle concurrent modifications with retries
+	max_retries = 3
+	if retry_count >= max_retries:
+		frappe.log_error(
+			message=f"Failed to update invoice {invoice_name} after {max_retries} retries due to concurrent modifications",
+			title="Invoice Update Failed - Max Retries"
+		)
+		return None
 	
-	# Only update if it's still a draft
-	if invoice.docstatus != 0:
-		frappe.throw("Cannot update submitted or cancelled invoice")
+	try:
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+		
+		# Only update if it's still a draft
+		if invoice.docstatus != 0:
+			frappe.throw("Cannot update submitted or cancelled invoice")
 	
 	# Get the store settings
 	setting = frappe.get_doc(STORE_DOCTYPE, store_name) if store_name else None
@@ -294,7 +305,24 @@ def update_draft_invoice(invoice_name, shopify_order, store_name):
 		title="Draft Invoice Updated"
 	)
 	
-	return invoice
+		return invoice
+	
+	except frappe.TimestampMismatchError:
+		# Document was modified by another process, retry
+		frappe.log_error(
+			message=f"Invoice {invoice_name} was modified by another process, retrying... (attempt {retry_count + 1})",
+			title="Concurrent Modification - Retrying"
+		)
+		# Small delay before retry to reduce contention
+		import time
+		time.sleep(0.5 * (retry_count + 1))  # Exponential backoff
+		return update_draft_invoice(invoice_name, shopify_order, store_name, retry_count + 1)
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to update draft invoice {invoice_name}: {str(e)}\n{frappe.get_traceback()}",
+			title="Draft Invoice Update Error"
+		)
+		raise
 
 
 def analyze_order_changes(shopify_order, invoice_name, store_name):
