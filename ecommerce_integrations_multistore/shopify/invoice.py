@@ -74,6 +74,12 @@ def auto_create_delivery_note(doc, method=None):
 	    doc: Sales Invoice document
 	    method: Hook method name (not used)
 	"""
+	# Debug log - FIRST THING
+	frappe.log_error(
+		message=f"auto_create_delivery_note START - invoice {doc.name}",
+		title="DN Hook Entry Point"
+	)
+	
 	# Debug log
 	frappe.log_error(
 		message=f"auto_create_delivery_note called for invoice {doc.name}, ORDER_ID_FIELD: {doc.get(ORDER_ID_FIELD)}",
@@ -90,16 +96,42 @@ def auto_create_delivery_note(doc, method=None):
 	
 	# Wrap entire function in try-catch to catch any error
 	try:
+		frappe.log_error(
+			message=f"Step 1: Starting delivery note check",
+			title="DN Creation Debug 1"
+		)
+		
 		# Check if delivery note already exists for this store
-		dn_filters = {ORDER_ID_FIELD: doc.get(ORDER_ID_FIELD)}
+		order_id = doc.get(ORDER_ID_FIELD)
+		frappe.log_error(
+			message=f"Step 2: Order ID = {order_id}",
+			title="DN Creation Debug 2"
+		)
+		
+		dn_filters = {ORDER_ID_FIELD: order_id}
 		store_name = doc.get(STORE_LINK_FIELD)
+		frappe.log_error(
+			message=f"Step 3: Store name = {store_name}",
+			title="DN Creation Debug 3"
+		)
+		
 		if store_name:
 			dn_filters[STORE_LINK_FIELD] = store_name
 			
+		frappe.log_error(
+			message=f"Step 4: DN filters = {dn_filters}",
+			title="DN Creation Debug 4"
+		)
+		
 		existing_dn = frappe.db.get_value(
 			"Delivery Note",
 			dn_filters,
 			"name"
+		)
+		
+		frappe.log_error(
+			message=f"Step 5: Existing DN = {existing_dn}",
+			title="DN Creation Debug 5"
 		)
 		
 		if existing_dn:
