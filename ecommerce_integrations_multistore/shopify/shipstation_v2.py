@@ -7,6 +7,38 @@ from frappe.utils import cint, flt, nowdate, getdate
 # ShipStation V2 API uses API Key authentication
 SHIPSTATION_BASE_URL = "https://api.shipstation.com"
 
+# Common country name to ISO code mappings
+COUNTRY_CODE_MAP = {
+    "United States": "US",
+    "United States of America": "US",
+    "USA": "US",
+    "Canada": "CA",
+    "United Kingdom": "GB",
+    "UK": "GB",
+    "Australia": "AU",
+    "Germany": "DE",
+    "France": "FR",
+    "Spain": "ES",
+    "Italy": "IT",
+    "Mexico": "MX",
+    "Japan": "JP",
+    "China": "CN",
+    "India": "IN",
+    "Brazil": "BR"
+}
+
+def get_country_code(country_name):
+    """Convert country name to 2-letter ISO code."""
+    if not country_name:
+        return "US"
+    
+    # Check if already a 2-letter code
+    if len(country_name) == 2:
+        return country_name.upper()
+    
+    # Try to map common country names
+    return COUNTRY_CODE_MAP.get(country_name, "US")
+
 def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     """Send Delivery Note to ShipStation using V2 API.
     
@@ -19,7 +51,7 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     """
     # ShipStation V2 API uses API Key authentication
     headers = {
-        "api-key": api_key,  # V2 uses api-key header, not Authorization
+        "x-api-key": api_key,  # V2 uses x-api-key header
         "Content-Type": "application/json"
     }
     
@@ -74,7 +106,7 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
             "city_locality": shipping_address.city or "",
             "state_province": shipping_address.state or "",
             "postal_code": shipping_address.pincode or "",
-            "country_code": shipping_address.country or "US"
+            "country_code": get_country_code(shipping_address.country) if shipping_address.country else "US"
         })
     
     # Add billing address if available
