@@ -71,16 +71,16 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     
     Args:
         delivery_note: ERPNext Delivery Note document
-        api_key: ShipStation V2 Production API Key (Bearer token)
+        api_key: ShipStation V2 Production API Key
     
     Returns:
         dict: Response from ShipStation API
     """
-    # ShipStation V2 API uses Bearer token authentication
+    # ShipStation V2 API uses API-Key header authentication
     headers = {
-        "Authorization": f"Bearer {api_key}",  # V2 uses Bearer token
+        "API-Key": api_key,  # V2 uses API-Key header (not Authorization)
         "Content-Type": "application/json",
-        "Accept": "application/json"  # Explicitly accept JSON responses
+        "Accept": "application/json"
     }
     
     # Debug: Log API key length (not the key itself for security)
@@ -183,7 +183,7 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
         
         # Debug: Log the request
         frappe.log_error(
-            message=f"Sending to URL: {url}\nHeaders (without key): {{'Authorization': 'Bearer ***', 'Content-Type': 'application/json'}}",
+            message=f"Sending to URL: {url}\nHeaders (without key): {{'API-Key': '***', 'Content-Type': 'application/json', 'Accept': 'application/json'}}",
             title="ShipStation V2 Debug - Request"
         )
         
