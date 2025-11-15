@@ -76,9 +76,9 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     Returns:
         dict: Response from ShipStation API
     """
-    # ShipStation V2 API uses API Key authentication
+    # ShipStation V2 API uses Bearer token authentication
     headers = {
-        "api-key": api_key,  # V2 uses api-key header (without x- prefix)
+        "Authorization": f"Bearer {api_key}",  # V2 uses Bearer token
         "Content-Type": "application/json"
     }
     
