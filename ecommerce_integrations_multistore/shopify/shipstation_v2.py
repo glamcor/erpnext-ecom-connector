@@ -83,9 +83,10 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
         "Accept": "application/json"
     }
     
-    # Debug: Log API key length (not the key itself for security)
+    # Debug: Log API key details and verify header format
+    api_key_preview = f"{api_key[:4]}...{api_key[-4:]}" if api_key and len(api_key) >= 8 else "N/A"
     frappe.log_error(
-        message=f"API Key Length: {len(api_key) if api_key else 0}, First 4 chars: {api_key[:4] if api_key and len(api_key) >= 4 else 'N/A'}...",
+        message=f"API Key Length: {len(api_key) if api_key else 0}\nFirst/Last 4 chars: {api_key_preview}\nHeader Keys: {list(headers.keys())}\nAPI-Key header exists: {'API-Key' in headers}",
         title="ShipStation V2 Debug - Auth"
     )
     
@@ -181,17 +182,20 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
         # Create shipment in ShipStation V2
         url = f"{SHIPSTATION_BASE_URL}/v2/shipments"
         
-        # Debug: Log the request
+        # Debug: Log the request with actual header keys (masking values)
+        masked_headers = {k: '***' if k.lower() in ['api-key', 'authorization'] else v for k, v in headers.items()}
         frappe.log_error(
-            message=f"Sending to URL: {url}\nHeaders (without key): {{'API-Key': '***', 'Content-Type': 'application/json', 'Accept': 'application/json'}}",
+            message=f"Sending to URL: {url}\nActual Headers (masked): {masked_headers}\nHeader count: {len(headers)}",
             title="ShipStation V2 Debug - Request"
         )
         
+        # Ensure no extra authentication is being added
         response = requests.post(
             url,
             json=shipment_data,
             headers=headers,
-            timeout=30
+            timeout=30,
+            auth=None  # Explicitly disable any default auth
         )
         
         # Debug: Log response details
