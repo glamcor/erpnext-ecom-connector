@@ -39,6 +39,33 @@ def get_country_code(country_name):
     # Try to map common country names
     return COUNTRY_CODE_MAP.get(country_name, "US")
 
+def is_us_domestic_order(delivery_note):
+    """Check if the order is a US domestic shipment.
+    
+    Args:
+        delivery_note: ERPNext Delivery Note document
+    
+    Returns:
+        bool: True if US domestic order, False otherwise
+    """
+    # Check shipping address
+    if delivery_note.shipping_address_name:
+        shipping_address = frappe.get_doc("Address", delivery_note.shipping_address_name)
+        country = shipping_address.country
+        
+        # Check if it's a US address
+        if country and country.upper() in ["US", "USA", "UNITED STATES", "UNITED STATES OF AMERICA"]:
+            return True
+        else:
+            frappe.log_error(
+                message=f"Non-US shipping address for {delivery_note.name}: {country}",
+                title="International Order Detected"
+            )
+            return False
+    
+    # No shipping address, assume not US domestic
+    return False
+
 def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     """Send Delivery Note to ShipStation using V2 API.
     
@@ -207,6 +234,14 @@ def update_shipstation_integration_for_v2(delivery_note, setting):
             title="ShipStation Integration Disabled"
         )
         return {"success": False, "error": "ShipStation integration disabled"}
+    
+    # Check if this is a US domestic order
+    if not is_us_domestic_order(delivery_note):
+        frappe.log_error(
+            message=f"Skipping ShipStation for non-US order {delivery_note.name}",
+            title="ShipStation - International Order"
+        )
+        return {"success": False, "error": "ShipStation only handles US domestic orders"}
     
     # Check if ShipStation V2 API key is configured
     if hasattr(setting, 'shipstation_api_key') and setting.shipstation_api_key:
