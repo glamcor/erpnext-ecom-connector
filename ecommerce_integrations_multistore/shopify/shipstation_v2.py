@@ -76,6 +76,9 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     Returns:
         dict: Response from ShipStation API
     """
+    # Clean the API key - remove any whitespace that might have been added
+    api_key = api_key.strip() if api_key else ""
+    
     # ShipStation V2 API uses API-Key header authentication
     headers = {
         "API-Key": api_key,  # V2 uses API-Key header (not Authorization)
