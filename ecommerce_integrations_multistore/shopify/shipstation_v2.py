@@ -200,6 +200,17 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
             title="ShipStation V2 Debug - Response"
         )
         
+        # If 401, try to get the error message before raising
+        if response.status_code == 401:
+            try:
+                error_text = response.text
+                frappe.log_error(
+                    message=f"401 Response Body: {error_text}",
+                    title="ShipStation V2 Debug - 401 Error"
+                )
+            except:
+                pass
+        
         response.raise_for_status()
         
         result = response.json()
@@ -225,15 +236,27 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     except requests.exceptions.HTTPError as e:
         # Try to get the actual error message from the response
         error_body = "No response body"
-        if e.response:
+        status_code = "Unknown"
+        url = "Unknown"
+        
+        if hasattr(e, 'response') and e.response is not None:
+            status_code = e.response.status_code
+            url = e.response.url
             try:
                 error_body = e.response.text
-            except:
-                error_body = "Could not decode response"
+                # If it's JSON, try to parse it for better error message
+                if e.response.headers.get('Content-Type', '').startswith('application/json'):
+                    try:
+                        error_json = e.response.json()
+                        error_body = f"JSON: {error_json}"
+                    except:
+                        pass
+            except Exception as decode_error:
+                error_body = f"Could not decode response: {str(decode_error)}"
         
-        error_detail = f"HTTP {e.response.status_code if e.response else 'Unknown'}: {error_body}"
+        error_detail = f"HTTP {status_code}: {error_body}"
         frappe.log_error(
-            message=f"Failed to send {delivery_note.name} to ShipStation: {error_detail}\nURL: {e.response.url if e.response else 'Unknown'}\nRequest: {shipment_data}",
+            message=f"Failed to send {delivery_note.name} to ShipStation: {error_detail}\nURL: {url}\nRequest: {shipment_data}",
             title="ShipStation API Error"
         )
         return {
