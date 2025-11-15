@@ -79,8 +79,15 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     # ShipStation V2 API uses Bearer token authentication
     headers = {
         "Authorization": f"Bearer {api_key}",  # V2 uses Bearer token
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"  # Explicitly accept JSON responses
     }
+    
+    # Debug: Log API key length (not the key itself for security)
+    frappe.log_error(
+        message=f"API Key Length: {len(api_key) if api_key else 0}, First 4 chars: {api_key[:4] if api_key and len(api_key) >= 4 else 'N/A'}...",
+        title="ShipStation V2 Debug - Auth"
+    )
     
     # Get customer and shipping details
     customer = frappe.get_doc("Customer", delivery_note.customer)
@@ -172,11 +179,25 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     
     try:
         # Create shipment in ShipStation V2
+        url = f"{SHIPSTATION_BASE_URL}/v2/shipments"
+        
+        # Debug: Log the request
+        frappe.log_error(
+            message=f"Sending to URL: {url}\nHeaders (without key): {{'Authorization': 'Bearer ***', 'Content-Type': 'application/json'}}",
+            title="ShipStation V2 Debug - Request"
+        )
+        
         response = requests.post(
-            f"{SHIPSTATION_BASE_URL}/v2/shipments",
+            url,
             json=shipment_data,
             headers=headers,
             timeout=30
+        )
+        
+        # Debug: Log response details
+        frappe.log_error(
+            message=f"Response Status: {response.status_code}, Headers: {dict(response.headers)}",
+            title="ShipStation V2 Debug - Response"
         )
         
         response.raise_for_status()
@@ -256,3 +277,4 @@ def update_shipstation_integration_for_v2(delivery_note, setting):
             title="ShipStation Configuration Missing"
         )
         return {"success": False, "error": "API Key not configured"}
+\
