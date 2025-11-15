@@ -78,7 +78,7 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     """
     # ShipStation V2 API uses API Key authentication
     headers = {
-        "x-api-key": api_key,  # V2 uses x-api-key header
+        "api-key": api_key,  # V2 uses api-key header (without x- prefix)
         "Content-Type": "application/json"
     }
     
