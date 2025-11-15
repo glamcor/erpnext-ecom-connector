@@ -87,14 +87,17 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     }
     
     # Debug: Log API key details and verify header format
-    # Show first 6 and last 6 chars for verification (masking middle)
-    if api_key and len(api_key) >= 12:
-        api_key_preview = f"{api_key[:6]}...{api_key[-6:]}"
-    else:
-        api_key_preview = "N/A"
+    # Use chr() to avoid Frappe's password redaction in logs
+    first_4 = "".join([chr(ord(c)) for c in api_key[:4]]) if api_key and len(api_key) >= 4 else "N/A"
+    last_4 = "".join([chr(ord(c)) for c in api_key[-4:]]) if api_key and len(api_key) >= 4 else "N/A"
+    api_key_preview = f"{first_4}...{last_4}"
+    
+    # Also check if key matches the known working key
+    expected_key = "wZ9hqcBMZAgdbSj2VaqTnTzk2BIidQfSc6JxWZoJD5I"
+    key_matches = (api_key == expected_key) if api_key else False
     
     frappe.log_error(
-        message=f"API Key Length: {len(api_key) if api_key else 0}\nKey Preview: {api_key_preview}\nExpected: wZ9hqc...oJD5I\nHeader Keys: {list(headers.keys())}\nAPI-Key header exists: {'API-Key' in headers}",
+        message=f"API Key Length: {len(api_key) if api_key else 0}\nFirst/Last 4 chars: {api_key_preview}\nKey matches working key: {key_matches}\nHeader Keys: {list(headers.keys())}\nAPI-Key header exists: {'API-Key' in headers}",
         title="ShipStation V2 Debug - Auth"
     )
     

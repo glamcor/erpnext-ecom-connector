@@ -113,7 +113,7 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 				frappe.log_error(
 					message=f"Failed to update incomplete order log status: {str(log_error)}",
 					title="Log Update Error"
-				)
+		)
 		return
 	try:
 		# Get store-specific settings
@@ -291,7 +291,7 @@ def update_draft_invoice(invoice_name, shopify_order, store_name, retry_count=0)
 				invoice.flags.ignore_validate = True
 				invoice.flags.ignore_mandatory = True
 				invoice.save(ignore_permissions=True)
-			else:
+	else:
 				raise
 		
 		# Log the update details
@@ -1303,7 +1303,7 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 				{"title": shopify_item.get("title"), "sku": shopify_item.get("sku"), ORDER_ID_FIELD: shopify_item.get("id")}
 			)
 			continue
-		
+
 		# Get income account from Item, Item Group, or Company
 		income_account = _get_income_account(item_code, setting.company)
 		
@@ -1313,19 +1313,19 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 		
 		# Build item dict
 		item_dict = {
-			"item_code": item_code,
+					"item_code": item_code,
 			"item_name": shopify_item.get("name") or shopify_item.get("title"),
 			"description": f"SKU: {shopify_item.get('sku')} | Variant: {shopify_item.get('variant_id')}",  # Store Shopify identifiers
-			"rate": _get_item_price(shopify_item, taxes_inclusive),
-			"delivery_date": delivery_date,
-			"qty": shopify_item.get("quantity"),
+					"rate": _get_item_price(shopify_item, taxes_inclusive),
+					"delivery_date": delivery_date,
+					"qty": shopify_item.get("quantity"),
 			"stock_uom": uom,
 			"uom": uom,  # Sales Invoice uses 'uom' field
-			"warehouse": setting.warehouse,
-			ORDER_ITEM_DISCOUNT_FIELD: (
-				_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
-			),
-		}
+					"warehouse": setting.warehouse,
+					ORDER_ITEM_DISCOUNT_FIELD: (
+						_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
+					),
+				}
 		
 		# Only add income_account if we found one (optional for ignore_validate mode)
 		if income_account:
