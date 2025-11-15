@@ -223,9 +223,17 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
         }
         
     except requests.exceptions.HTTPError as e:
-        error_detail = f"HTTP {e.response.status_code}: {e.response.text if e.response else 'No response body'}"
+        # Try to get the actual error message from the response
+        error_body = "No response body"
+        if e.response:
+            try:
+                error_body = e.response.text
+            except:
+                error_body = "Could not decode response"
+        
+        error_detail = f"HTTP {e.response.status_code if e.response else 'Unknown'}: {error_body}"
         frappe.log_error(
-            message=f"Failed to send {delivery_note.name} to ShipStation: {error_detail}\nURL: {e.response.url}\nRequest: {shipment_data}",
+            message=f"Failed to send {delivery_note.name} to ShipStation: {error_detail}\nURL: {e.response.url if e.response else 'Unknown'}\nRequest: {shipment_data}",
             title="ShipStation API Error"
         )
         return {
