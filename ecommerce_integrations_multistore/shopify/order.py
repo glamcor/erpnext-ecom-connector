@@ -291,7 +291,7 @@ def update_draft_invoice(invoice_name, shopify_order, store_name, retry_count=0)
 				invoice.flags.ignore_validate = True
 				invoice.flags.ignore_mandatory = True
 				invoice.save(ignore_permissions=True)
-	else:
+			else:
 				raise
 		
 		# Log the update details
