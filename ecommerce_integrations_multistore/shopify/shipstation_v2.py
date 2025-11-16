@@ -283,10 +283,13 @@ def update_shipstation_integration_for_v2(delivery_note, setting):
         return {"success": False, "error": "ShipStation only handles US domestic orders"}
     
     # Check if ShipStation V2 API key is configured
-    if hasattr(setting, 'shipstation_api_key') and setting.shipstation_api_key:
+    # Must use get_password() for Password fields, not direct access
+    api_key = setting.get_password("shipstation_api_key")
+    
+    if api_key:
         result = send_delivery_note_to_shipstation_v2(
             delivery_note, 
-            setting.shipstation_api_key
+            api_key
         )
         return result
     else:
