@@ -274,22 +274,37 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
         
         result = response.json()
         
+        # Debug: Log full response to see structure
+        frappe.log_error(
+            message=f"ShipStation Response:\n{result}",
+            title="ShipStation V2 Full Response"
+        )
+        
+        # V2 API returns array of shipments
+        shipments = result.get("shipments", [])
+        shipment_info = shipments[0] if shipments else {}
+        
+        shipment_id = shipment_info.get("shipment_id")
+        external_id = shipment_info.get("external_shipment_id")
+        
         # Log success
         frappe.log_error(
-            message=f"Successfully sent {delivery_note.name} to ShipStation. Shipment ID: {result.get('shipment_id')}",
+            message=f"Successfully sent {delivery_note.name} to ShipStation.\nShipment ID: {shipment_id}\nExternal ID: {external_id}\nFull shipment info: {shipment_info}",
             title="ShipStation V2 Success"
         )
         
-        # Add comment to delivery note
-        delivery_note.add_comment(
-            comment_type="Info",
-            text=f"Sent to ShipStation V2. Shipment ID: {result.get('shipment_id')}"
-        )
+        # Add comment to delivery note with shipment ID
+        if shipment_id:
+            delivery_note.add_comment(
+                comment_type="Info",
+                text=f"Sent to ShipStation V2. Shipment ID: {shipment_id}"
+            )
         
         return {
             "success": True,
-            "shipment_id": result.get("shipment_id"),
-            "external_shipment_id": result.get("external_shipment_id")
+            "shipment_id": shipment_id,
+            "external_shipment_id": external_id,
+            "full_response": shipment_info
         }
         
     except requests.exceptions.HTTPError as e:
