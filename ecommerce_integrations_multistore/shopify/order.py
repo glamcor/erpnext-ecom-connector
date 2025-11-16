@@ -1594,22 +1594,45 @@ def cancel_order(payload, request_id=None, store_name=None):
 	order = payload
 
 	try:
-		order_id = order["id"]
+		order_id = cstr(order["id"])  # Convert to string for matching
 		order_status = order["financial_status"]
+		
+		frappe.log_error(
+			message=f"Processing cancellation for order ID: {order_id}, Store: {store_name}, Financial Status: {order_status}",
+			title="Cancel Order Debug"
+		)
 
-		# Look for Sales Invoice instead of Sales Order
+		# Look for Sales Invoice (filter by store for multi-store support)
+		invoice_filters = {ORDER_ID_FIELD: order_id}
+		if store_name:
+			invoice_filters[STORE_LINK_FIELD] = store_name
+			
 		sales_invoice = frappe.db.get_value(
 			"Sales Invoice", 
-			filters={ORDER_ID_FIELD: order_id},
+			filters=invoice_filters,
 			fieldname=["name", "docstatus"],
 			as_dict=True
 		)
 
 		if not sales_invoice:
+			frappe.log_error(
+				message=f"Sales Invoice does not exist for order {order_id} in store {store_name}",
+				title="Cancel Order - Invoice Not Found"
+			)
 			create_shopify_log(status="Invalid", message="Sales Invoice does not exist", store_name=store_name)
 			return
 
-		delivery_notes = frappe.db.get_list("Delivery Note", filters={ORDER_ID_FIELD: order_id})
+		frappe.log_error(
+			message=f"Found Sales Invoice: {sales_invoice.name}, docstatus: {sales_invoice.docstatus}",
+			title="Cancel Order - Invoice Found"
+		)
+
+		# Get delivery notes for this order (filter by store)
+		dn_filters = {ORDER_ID_FIELD: order_id}
+		if store_name:
+			dn_filters[STORE_LINK_FIELD] = store_name
+			
+		delivery_notes = frappe.db.get_list("Delivery Note", filters=dn_filters)
 
 		# Update status on invoice
 		frappe.db.set_value("Sales Invoice", sales_invoice.name, ORDER_STATUS_FIELD, order_status)
@@ -1618,22 +1641,50 @@ def cancel_order(payload, request_id=None, store_name=None):
 			frappe.db.set_value("Delivery Note", dn.name, ORDER_STATUS_FIELD, order_status)
 
 		# Handle cancellation based on document status
+		frappe.log_error(
+			message=f"Checking docstatus for invoice {sales_invoice.name}: {sales_invoice.docstatus}",
+			title="Cancel Order - Docstatus Check"
+		)
+		
 		if sales_invoice.docstatus == 0:
-			# Draft invoice - just delete it
-			frappe.delete_doc("Sales Invoice", sales_invoice.name, force=True)
+			# Draft invoice - delete it
 			frappe.log_error(
-				message=f"Deleted draft Sales Invoice {sales_invoice.name} for cancelled Shopify order {order_id}",
-				title="Shopify Order Cancelled - Draft Deleted"
+				message=f"Attempting to delete draft invoice {sales_invoice.name}",
+				title="Cancel Order - Deleting Draft"
 			)
+			
+			try:
+				frappe.delete_doc("Sales Invoice", sales_invoice.name, force=True)
+				frappe.log_error(
+					message=f"Successfully deleted draft Sales Invoice {sales_invoice.name} for cancelled Shopify order {order_id}",
+					title="Shopify Order Cancelled - Draft Deleted"
+				)
+			except Exception as delete_error:
+				frappe.log_error(
+					message=f"Failed to delete draft invoice {sales_invoice.name}: {str(delete_error)}\n{frappe.get_traceback()}",
+					title="Cancel Order - Delete Failed"
+				)
+				raise
 		elif sales_invoice.docstatus == 1:
 			# Submitted invoice - need to cancel it and related documents
 			si_doc = frappe.get_doc("Sales Invoice", sales_invoice.name)
 			
-			# 1. Cancel ShipStation shipment if it exists
+			# 1. Cancel ShipStation shipment if it exists (only if Delivery Note was created)
 			if delivery_notes:
+				# Lazy import to avoid circular dependency
+				from ecommerce_integrations_multistore.shopify.shipstation_v2 import cancel_shipstation_shipment
+				
 				for dn_ref in delivery_notes:
 					dn = frappe.get_doc("Delivery Note", dn_ref.name)
-					cancel_shipstation_shipment(dn)
+					
+					# Only cancel ShipStation if shipment exists
+					if dn.get("shipstation_shipment_id"):
+						cancel_shipstation_shipment(dn)
+					else:
+						frappe.log_error(
+							message=f"No ShipStation shipment ID on Delivery Note {dn.name}, skipping ShipStation cancellation",
+							title="Cancel Order - No ShipStation ID"
+						)
 					
 					# Cancel Delivery Note if submitted
 					if dn.docstatus == 1:
