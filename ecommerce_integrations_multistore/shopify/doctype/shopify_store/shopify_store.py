@@ -232,15 +232,23 @@ def setup_custom_fields():
 				read_only=1,
 				print_hide=1,
 			),
-			dict(
-				fieldname=FULLFILLMENT_ID_FIELD,
-				label="Shopify Fulfillment Id",
-				fieldtype="Small Text",
-				insert_after=ORDER_STATUS_FIELD,
-				read_only=1,
-				print_hide=1,
-			),
-		],
+		dict(
+			fieldname=FULLFILLMENT_ID_FIELD,
+			label="Shopify Fulfillment Id",
+			fieldtype="Small Text",
+			insert_after=ORDER_STATUS_FIELD,
+			read_only=1,
+			print_hide=1,
+		),
+		dict(
+			fieldname="shipstation_shipment_id",
+			label="ShipStation Shipment ID",
+			fieldtype="Data",
+			insert_after=FULLFILLMENT_ID_FIELD,
+			read_only=1,
+			print_hide=1,
+		),
+	],
 		"Sales Invoice": [
 			dict(
 				fieldname=STORE_LINK_FIELD,

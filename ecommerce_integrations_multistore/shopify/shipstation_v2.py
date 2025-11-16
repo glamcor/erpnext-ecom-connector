@@ -272,32 +272,41 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
         
         response.raise_for_status()
         
-        result = response.json()
+        data = response.json()
         
         # Debug: Log full response to see structure
         frappe.log_error(
-            message=f"ShipStation Response:\n{result}",
+            message=f"ShipStation Response:\n{frappe.as_json(data, indent=2)}",
             title="ShipStation V2 Full Response"
         )
         
-        # V2 API returns array of shipments
-        shipments = result.get("shipments", [])
-        shipment_info = shipments[0] if shipments else {}
+        # V2 API returns: {"shipments": [{...}]}
+        # Extract shipment_id from first shipment in array
+        shipment_id = None
+        external_id = None
+        shipment_info = {}
         
-        shipment_id = shipment_info.get("shipment_id")
-        external_id = shipment_info.get("external_shipment_id")
+        if "shipments" in data and data["shipments"]:
+            shipment_info = data["shipments"][0]
+            shipment_id = shipment_info.get("shipment_id")
+            external_id = shipment_info.get("external_shipment_id")
         
-        # Log success
-        frappe.log_error(
-            message=f"Successfully sent {delivery_note.name} to ShipStation.\nShipment ID: {shipment_id}\nExternal ID: {external_id}\nFull shipment info: {shipment_info}",
-            title="ShipStation V2 Success"
-        )
-        
-        # Add comment to delivery note with shipment ID
+        # Persist shipment_id on Delivery Note
         if shipment_id:
+            delivery_note.db_set("shipstation_shipment_id", shipment_id, update_modified=False)
+            frappe.log_error(
+                message=f"Successfully sent {delivery_note.name} to ShipStation.\nShipment ID: {shipment_id}\nExternal ID: {external_id}",
+                title="ShipStation V2 Success"
+            )
+            # Add comment to delivery note
             delivery_note.add_comment(
                 comment_type="Info",
                 text=f"Sent to ShipStation V2. Shipment ID: {shipment_id}"
+            )
+        else:
+            frappe.log_error(
+                title="ShipStation V2 - Missing shipment_id",
+                message=frappe.as_json(data, indent=2)
             )
         
         return {
