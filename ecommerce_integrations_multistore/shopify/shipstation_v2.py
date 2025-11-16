@@ -4,6 +4,8 @@ import frappe
 import requests
 from frappe.utils import cint, flt, nowdate, getdate
 
+from ecommerce_integrations_multistore.shopify.constants import STORE_LINK_FIELD
+
 # ShipStation V2 API uses API Key authentication
 SHIPSTATION_BASE_URL = "https://api.shipstation.com"
 
@@ -395,3 +397,78 @@ def update_shipstation_integration_for_v2(delivery_note, setting):
             title="ShipStation Configuration Missing"
         )
         return {"success": False, "error": "API Key not configured"}
+
+
+def cancel_shipstation_shipment(delivery_note):
+    """Cancel a shipment in ShipStation when order is cancelled.
+    
+    Args:
+        delivery_note: ERPNext Delivery Note document
+    
+    Returns:
+        dict: Result of the cancellation
+    """
+    try:
+        # Get the shipment ID from the delivery note
+        shipment_id = delivery_note.get("shipstation_shipment_id")
+        
+        if not shipment_id:
+            frappe.log_error(
+                message=f"No ShipStation shipment ID found on Delivery Note {delivery_note.name}",
+                title="ShipStation Cancellation - No Shipment ID"
+            )
+            return {"success": False, "error": "No shipment ID"}
+        
+        # Get the store settings for API key
+        store_name = delivery_note.get(STORE_LINK_FIELD)
+        if not store_name:
+            return {"success": False, "error": "No store name"}
+        
+        setting = frappe.get_doc("Shopify Store", store_name)
+        api_key = setting.get_password("shipstation_api_key")
+        
+        if not api_key:
+            return {"success": False, "error": "No API key"}
+        
+        # Cancel the shipment in ShipStation using V2 API
+        headers = {
+            "API-Key": api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        url = f"{SHIPSTATION_BASE_URL}/v2/shipments/{shipment_id}/cancel"
+        
+        response = requests.put(
+            url,
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            frappe.log_error(
+                message=f"Successfully cancelled ShipStation shipment {shipment_id} for Delivery Note {delivery_note.name}",
+                title="ShipStation Shipment Cancelled"
+            )
+            
+            # Add comment to delivery note
+            delivery_note.add_comment(
+                comment_type="Info",
+                text=f"ShipStation shipment {shipment_id} cancelled due to Shopify order cancellation"
+            )
+            
+            return {"success": True, "shipment_id": shipment_id}
+        else:
+            error_msg = f"Failed to cancel ShipStation shipment {shipment_id}: HTTP {response.status_code} - {response.text}"
+            frappe.log_error(
+                message=error_msg,
+                title="ShipStation Cancellation Failed"
+            )
+            return {"success": False, "error": error_msg}
+            
+    except Exception as e:
+        frappe.log_error(
+            message=f"Error cancelling ShipStation shipment for {delivery_note.name}: {str(e)}",
+            title="ShipStation Cancellation Error"
+        )
+        return {"success": False, "error": str(e)}

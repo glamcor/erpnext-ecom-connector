@@ -1617,18 +1617,71 @@ def cancel_order(payload, request_id=None, store_name=None):
 		for dn in delivery_notes:
 			frappe.db.set_value("Delivery Note", dn.name, ORDER_STATUS_FIELD, order_status)
 
-		# Delete invoice if it's still draft and no delivery notes exist
-		if not delivery_notes and sales_invoice.docstatus == 0:
-			# Draft invoices should be deleted, not cancelled
+		# Handle cancellation based on document status
+		if sales_invoice.docstatus == 0:
+			# Draft invoice - just delete it
 			frappe.delete_doc("Sales Invoice", sales_invoice.name, force=True)
-			frappe.db.commit()
-		elif sales_invoice.docstatus == 1 and not delivery_notes:
-			# If submitted but not delivered, add cancellation comment
+			frappe.log_error(
+				message=f"Deleted draft Sales Invoice {sales_invoice.name} for cancelled Shopify order {order_id}",
+				title="Shopify Order Cancelled - Draft Deleted"
+			)
+		elif sales_invoice.docstatus == 1:
+			# Submitted invoice - need to cancel it and related documents
 			si_doc = frappe.get_doc("Sales Invoice", sales_invoice.name)
+			
+			# 1. Cancel ShipStation shipment if it exists
+			if delivery_notes:
+				for dn_ref in delivery_notes:
+					dn = frappe.get_doc("Delivery Note", dn_ref.name)
+					cancel_shipstation_shipment(dn)
+					
+					# Cancel Delivery Note if submitted
+					if dn.docstatus == 1:
+						dn.add_comment(
+							comment_type="Info",
+							text=f"Cancelling due to Shopify order cancellation. Status: {order_status}"
+						)
+						dn.cancel()
+						frappe.log_error(
+							message=f"Cancelled Delivery Note {dn.name} for cancelled Shopify order {order_id}",
+							title="Shopify Order Cancelled - DN Cancelled"
+						)
+			
+			# 2. Cancel Payment Entry if it exists
+			payment_entries = frappe.get_all(
+				"Payment Entry",
+				filters={
+					"reference_name": sales_invoice.name,
+					"reference_doctype": "Sales Invoice",
+					"docstatus": 1  # Only submitted payments
+				},
+				pluck="name"
+			)
+			
+			for pe_name in payment_entries:
+				pe = frappe.get_doc("Payment Entry", pe_name)
+				pe.add_comment(
+					comment_type="Info",
+					text=f"Cancelling due to Shopify order cancellation and refund. Status: {order_status}"
+				)
+				pe.cancel()
+				frappe.log_error(
+					message=f"Cancelled Payment Entry {pe_name} for refunded Shopify order {order_id}",
+					title="Shopify Order Cancelled - Payment Reversed"
+				)
+			
+			# 3. Cancel Sales Invoice
 			si_doc.add_comment(
 				comment_type="Info",
-				text=f"Order cancelled in Shopify. Status: {order_status}"
+				text=f"Order cancelled and refunded in Shopify. Status: {order_status}"
 			)
+			si_doc.cancel()
+			frappe.log_error(
+				message=f"Cancelled Sales Invoice {sales_invoice.name} for cancelled Shopify order {order_id}",
+				title="Shopify Order Cancelled - Invoice Cancelled"
+			)
+		
+		frappe.db.commit()
 
 	except Exception as e:
 		create_shopify_log(status="Error", exception=e, store_name=store_name)
