@@ -27,6 +27,61 @@ COUNTRY_CODE_MAP = {
     "Brazil": "BR"
 }
 
+# US state name to 2-letter code mappings
+US_STATE_CODES = {
+    "Alabama": "AL",
+    "Alaska": "AK",
+    "Arizona": "AZ",
+    "Arkansas": "AR",
+    "California": "CA",
+    "Colorado": "CO",
+    "Connecticut": "CT",
+    "Delaware": "DE",
+    "District of Columbia": "DC",
+    "Florida": "FL",
+    "Georgia": "GA",
+    "Hawaii": "HI",
+    "Idaho": "ID",
+    "Illinois": "IL",
+    "Indiana": "IN",
+    "Iowa": "IA",
+    "Kansas": "KS",
+    "Kentucky": "KY",
+    "Louisiana": "LA",
+    "Maine": "ME",
+    "Maryland": "MD",
+    "Massachusetts": "MA",
+    "Michigan": "MI",
+    "Minnesota": "MN",
+    "Mississippi": "MS",
+    "Missouri": "MO",
+    "Montana": "MT",
+    "Nebraska": "NE",
+    "Nevada": "NV",
+    "New Hampshire": "NH",
+    "New Jersey": "NJ",
+    "New Mexico": "NM",
+    "New York": "NY",
+    "North Carolina": "NC",
+    "North Dakota": "ND",
+    "Ohio": "OH",
+    "Oklahoma": "OK",
+    "Oregon": "OR",
+    "Pennsylvania": "PA",
+    "Rhode Island": "RI",
+    "South Carolina": "SC",
+    "South Dakota": "SD",
+    "Tennessee": "TN",
+    "Texas": "TX",
+    "Utah": "UT",
+    "Vermont": "VT",
+    "Virginia": "VA",
+    "Washington": "WA",
+    "West Virginia": "WV",
+    "Wisconsin": "WI",
+    "Wyoming": "WY",
+}
+
 def get_country_code(country_name):
     """Convert country name to 2-letter ISO code."""
     if not country_name:
@@ -38,6 +93,18 @@ def get_country_code(country_name):
     
     # Try to map common country names
     return COUNTRY_CODE_MAP.get(country_name, "US")
+
+def get_state_code(state_name):
+    """Convert US state name to 2-letter code."""
+    if not state_name:
+        return ""
+    
+    # Check if already a 2-letter code
+    if len(state_name) == 2:
+        return state_name.upper()
+    
+    # Try to map state name
+    return US_STATE_CODES.get(state_name, state_name)
 
 def is_us_domestic_order(delivery_note):
     """Check if the order is a US domestic shipment.
@@ -108,7 +175,7 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
         "external_shipment_id": delivery_note.name,  # Our reference
         "ship_to": {
             "name": customer.customer_name,
-            "phone": customer.mobile_no or "",
+            "phone": customer.mobile_no or "(000) 000-0000",  # Default if no phone
             "email": customer.email_id or "",
             "company_name": customer.customer_name,
             "address_line1": "",
@@ -121,7 +188,7 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
         },
         "ship_from": {
             "name": "GLAMCOR GLOBAL LLC",
-            "phone": "",
+            "phone": "(212) 555-1212",  # GLAMCOR default phone
             "email": "",
             "company_name": "GLAMCOR GLOBAL LLC",
             "address_line1": "227 Route 33 E",
@@ -138,11 +205,16 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     # Add shipping address if available
     if delivery_note.shipping_address_name:
         shipping_address = frappe.get_doc("Address", delivery_note.shipping_address_name)
+        
+        # Get phone from address or customer
+        ship_to_phone = shipping_address.phone or customer.mobile_no or customer.phone or "(000) 000-0000"
+        
         shipment["ship_to"].update({
+            "phone": ship_to_phone,
             "address_line1": shipping_address.address_line1 or "",
             "address_line2": shipping_address.address_line2 or "",
             "city_locality": shipping_address.city or "",
-            "state_province": shipping_address.state or "",
+            "state_province": get_state_code(shipping_address.state),  # Convert to 2-letter code
             "postal_code": shipping_address.pincode or "",
             "country_code": get_country_code(shipping_address.country) if shipping_address.country else "US"
         })
