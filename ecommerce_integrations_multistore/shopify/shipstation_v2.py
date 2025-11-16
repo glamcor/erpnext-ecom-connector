@@ -173,6 +173,7 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
         "carrier_id": "se-1553310",  # UPS carrier ID - ShipStation will use automation rules
         "service_code": "ups_ground_saver",  # Default service - ShipStation will optimize
         "external_shipment_id": delivery_note.name,  # Our reference
+        "create_sales_order": True,  # Create Order in ShipStation UI (not just Shipment API object)
         "ship_to": {
             "name": customer.customer_name,
             "phone": customer.mobile_no or "(000) 000-0000",  # Default if no phone
