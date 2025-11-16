@@ -104,13 +104,12 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     # Get customer and shipping details
     customer = frappe.get_doc("Customer", delivery_note.customer)
     
-    # Build ShipStation shipment payload for V2 API
-    shipment_data = {
-        "shipment_id": None,  # Let ShipStation generate this
-        "carrier_id": None,  # Will be set by user in ShipStation
-        "service_code": None,  # Will be set by user in ShipStation
+    # Build ShipStation shipment for V2 API (following known-good schema)
+    # carrier_id and service_code will be determined by ShipStation automation rules
+    shipment = {
+        "carrier_id": "se-1553310",  # UPS carrier ID - ShipStation will use automation rules
+        "service_code": "ups_ground_saver",  # Default service - ShipStation will optimize
         "external_shipment_id": delivery_note.name,  # Our reference
-        "ship_date": getdate(nowdate()).isoformat(),
         "ship_to": {
             "name": customer.customer_name,
             "phone": customer.mobile_no or "",
@@ -121,32 +120,29 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
             "city_locality": "",
             "state_province": "",
             "postal_code": "",
-            "country_code": "US",  # Default to US
+            "country_code": "US",
             "address_residential_indicator": "unknown"
         },
         "ship_from": {
-            "name": frappe.defaults.get_global_default("company") or "Your Company",
+            "name": "GLAMCOR GLOBAL LLC",
             "phone": "",
-            "company_name": frappe.defaults.get_global_default("company") or "Your Company",
-            "address_line1": "",
-            "city_locality": "",
-            "state_province": "",
-            "postal_code": "",
-            "country_code": "US"
+            "email": "",
+            "company_name": "GLAMCOR GLOBAL LLC",
+            "address_line1": "227 Route 33 E",
+            "address_line2": "Bldg 2, Unit 7",
+            "city_locality": "Manalapan",
+            "state_province": "NJ",
+            "postal_code": "07726",
+            "country_code": "US",
+            "address_residential_indicator": "no"
         },
-        "packages": [{
-            "weight": {
-                "value": 1.0,  # Default weight
-                "unit": "pound"
-            }
-        }],
         "items": []
     }
     
     # Add shipping address if available
     if delivery_note.shipping_address_name:
         shipping_address = frappe.get_doc("Address", delivery_note.shipping_address_name)
-        shipment_data["ship_to"].update({
+        shipment["ship_to"].update({
             "address_line1": shipping_address.address_line1 or "",
             "address_line2": shipping_address.address_line2 or "",
             "city_locality": shipping_address.city or "",
@@ -155,39 +151,19 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
             "country_code": get_country_code(shipping_address.country) if shipping_address.country else "US"
         })
     
-    # Add billing address if available
-    if delivery_note.customer_address:
-        billing_address = frappe.get_doc("Address", delivery_note.customer_address)
-        shipment_data["ship_from"].update({
-            "address_line1": billing_address.address_line1 or "",
-            "city_locality": billing_address.city or "",
-            "state_province": billing_address.state or "",
-            "postal_code": billing_address.pincode or ""
-        })
-    
-    # Add line items
-    total_weight = 0
+    # Add line items (unit_price as plain number, not object)
     for item in delivery_note.items:
-        shipment_data["items"].append({
+        shipment["items"].append({
             "name": item.item_name,
             "sku": item.item_code,
             "quantity": cint(item.qty),
-            "unit_price": {
-                "currency": "USD",
-                "amount": flt(item.rate)
-            }
+            "unit_price": flt(item.rate)  # Plain number, not object
         })
-        # Calculate total weight (assuming 1 lb per item if not specified)
-        item_weight = flt(item.weight_per_unit) if hasattr(item, 'weight_per_unit') else 1.0
-        total_weight += item_weight * cint(item.qty)
     
-    # Update package weight with actual total
-    if total_weight > 0:
-        shipment_data["packages"][0]["weight"]["value"] = total_weight
-    
-    # Add internal notes
-    if hasattr(delivery_note, 'shopify_order_id'):
-        shipment_data["internal_notes"] = f"Shopify Order ID: {delivery_note.shopify_order_id}"
+    # Wrap shipment in shipments array as required by V2 API
+    payload = {
+        "shipments": [shipment]
+    }
     
     try:
         # Create shipment in ShipStation V2
@@ -200,10 +176,10 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
             title="ShipStation V2 Debug - Request"
         )
         
-        # Ensure no extra authentication is being added
+        # Send the request with payload (shipments array)
         response = requests.post(
             url,
-            json=shipment_data,
+            json=payload,
             headers=headers,
             timeout=30,
             auth=None  # Explicitly disable any default auth
@@ -271,7 +247,7 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
         
         error_detail = f"HTTP {status_code}: {error_body}"
         frappe.log_error(
-            message=f"Failed to send {delivery_note.name} to ShipStation: {error_detail}\nURL: {url}\nRequest: {shipment_data}",
+            message=f"Failed to send {delivery_note.name} to ShipStation: {error_detail}\nURL: {url}\nRequest: {payload}",
             title="ShipStation API Error"
         )
         return {
