@@ -872,84 +872,60 @@ def create_sales_invoice(shopify_order, setting, company=None):
 		billing_address = None
 		shipping_address = None
 		
-		# Look up addresses by Shopify address ID or create address title
+		# Look up addresses by customer link and address type (more reliable than title matching)
 		if shopify_order.get("billing_address"):
 			billing_addr = shopify_order.get("billing_address")
-			# Debug log the billing address data
 			frappe.log_error(
 				message=f"Billing address data: {billing_addr}",
 				title="Address Debug - Billing"
 			)
+			
 			# Try to find by Shopify address ID first
 			if billing_addr.get("id"):
-				frappe.log_error(
-					message=f"Looking for billing address with shopify_address_id: {billing_addr.get('id')}",
-					title="Address Lookup Debug"
-				)
 				billing_address = frappe.db.get_value(
 					"Address",
 					{"shopify_address_id": billing_addr.get("id")},
 					"name"
 				)
-				frappe.log_error(
-					message=f"Found billing address by ID: {billing_address}",
-					title="Address Lookup Debug"
-				)
-			# If not found, try by address title
+			
+			# If not found by ID, find by customer link and address_type
 			if not billing_address:
-				# Create expected address title format
-				address_title = f"{customer}-Billing"
-				frappe.log_error(
-					message=f"Looking for billing address with title: {address_title}",
-					title="Address Lookup Debug"
-				)
 				billing_address = frappe.db.get_value(
 					"Address",
-					{"address_title": address_title},
-					"name"
+					{"link_name": customer, "address_type": "Billing"},
+					"name",
+					order_by="modified desc"  # Get most recent
 				)
 				frappe.log_error(
-					message=f"Found billing address by title: {billing_address}",
+					message=f"Found billing address by customer link: {billing_address}",
 					title="Address Lookup Debug"
 				)
 		
 		if shopify_order.get("shipping_address"):
 			shipping_addr = shopify_order.get("shipping_address")
-			# Debug log the shipping address data
 			frappe.log_error(
 				message=f"Shipping address data: {shipping_addr}",
 				title="Address Debug - Shipping"
 			)
+			
 			# Try to find by Shopify address ID first
 			if shipping_addr.get("id"):
-				frappe.log_error(
-					message=f"Looking for shipping address with shopify_address_id: {shipping_addr.get('id')}",
-					title="Address Lookup Debug"
-				)
 				shipping_address = frappe.db.get_value(
 					"Address",
 					{"shopify_address_id": shipping_addr.get("id")},
 					"name"
 				)
-				frappe.log_error(
-					message=f"Found shipping address by ID: {shipping_address}",
-					title="Address Lookup Debug"
-				)
-			# If not found, try by address title
+			
+			# If not found by ID, find by customer link and address_type
 			if not shipping_address:
-				# Create expected address title format
-				address_title = f"{customer}-Shipping"
-				frappe.log_error(
-					message=f"Looking for shipping address with title: {address_title}",
-					title="Address Lookup Debug"
-				)
 				shipping_address = frappe.db.get_value(
 					"Address",
-					{"address_title": address_title},
-					"name"
+					{"link_name": customer, "address_type": "Shipping"},
+					"name",
+					order_by="modified desc"  # Get most recent
 				)
 				frappe.log_error(
-					message=f"Found shipping address by title: {shipping_address}",
+					message=f"Found shipping address by customer link: {shipping_address}",
 					title="Address Lookup Debug"
 				)
 		
