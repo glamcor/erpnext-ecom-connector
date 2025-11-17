@@ -890,12 +890,21 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			
 			# If not found by ID, find by customer link and address_type
 			if not billing_address:
-				billing_address = frappe.db.get_value(
-					"Address",
-					{"link_name": customer, "address_type": "Billing"},
-					"name",
-					order_by="modified desc"  # Get most recent
-				)
+				# Query the Dynamic Link child table
+				billing_address = frappe.db.sql("""
+					SELECT parent 
+					FROM `tabDynamic Link`
+					WHERE link_doctype = 'Customer' 
+					AND link_name = %s
+					AND parenttype = 'Address'
+					AND parent IN (
+						SELECT name FROM `tabAddress` WHERE address_type = 'Billing'
+					)
+					ORDER BY modified DESC
+					LIMIT 1
+				""", (customer,), as_dict=False)
+				
+				billing_address = billing_address[0][0] if billing_address else None
 				frappe.log_error(
 					message=f"Found billing address by customer link: {billing_address}",
 					title="Address Lookup Debug"
@@ -918,12 +927,21 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			
 			# If not found by ID, find by customer link and address_type
 			if not shipping_address:
-				shipping_address = frappe.db.get_value(
-					"Address",
-					{"link_name": customer, "address_type": "Shipping"},
-					"name",
-					order_by="modified desc"  # Get most recent
-				)
+				# Query the Dynamic Link child table
+				shipping_address = frappe.db.sql("""
+					SELECT parent 
+					FROM `tabDynamic Link`
+					WHERE link_doctype = 'Customer' 
+					AND link_name = %s
+					AND parenttype = 'Address'
+					AND parent IN (
+						SELECT name FROM `tabAddress` WHERE address_type = 'Shipping'
+					)
+					ORDER BY modified DESC
+					LIMIT 1
+				""", (customer,), as_dict=False)
+				
+				shipping_address = shipping_address[0][0] if shipping_address else None
 				frappe.log_error(
 					message=f"Found shipping address by customer link: {shipping_address}",
 					title="Address Lookup Debug"
