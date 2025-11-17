@@ -1722,15 +1722,28 @@ def cancel_order(payload, request_id=None, store_name=None):
 				)
 			
 			# 3. Cancel Sales Invoice
-			si_doc.add_comment(
-				comment_type="Info",
-				text=f"Order cancelled and refunded in Shopify. Status: {order_status}"
-			)
-			si_doc.cancel()
-			frappe.log_error(
-				message=f"Cancelled Sales Invoice {sales_invoice.name} for cancelled Shopify order {order_id}",
-				title="Shopify Order Cancelled - Invoice Cancelled"
-			)
+			try:
+				frappe.log_error(
+					message=f"Attempting to cancel Sales Invoice {sales_invoice.name}, current docstatus: {si_doc.docstatus}",
+					title="Cancel Order - Cancelling Invoice"
+				)
+				
+				si_doc.add_comment(
+					comment_type="Info",
+					text=f"Order cancelled and refunded in Shopify. Status: {order_status}"
+				)
+				si_doc.cancel()
+				
+				frappe.log_error(
+					message=f"Successfully cancelled Sales Invoice {sales_invoice.name} for cancelled Shopify order {order_id}",
+					title="Shopify Order Cancelled - Invoice Cancelled"
+				)
+			except Exception as cancel_error:
+				frappe.log_error(
+					message=f"Failed to cancel Sales Invoice {sales_invoice.name}: {str(cancel_error)}\n{frappe.get_traceback()}",
+					title="Cancel Order - Invoice Cancel Failed"
+				)
+				raise
 		
 		frappe.db.commit()
 
