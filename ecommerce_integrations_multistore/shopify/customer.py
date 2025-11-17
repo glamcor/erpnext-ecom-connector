@@ -253,7 +253,22 @@ class ShopifyCustomer(EcommerceCustomer):
 
 		if not old_address:
 			# Address doesn't exist - create new
-			self.create_customer_address(customer_name, shopify_address, address_type, email)
+			frappe.log_error(
+				message=f"Creating new {address_type} address for {customer_name}. Address data: {shopify_address}",
+				title="Customer Address Creation"
+			)
+			try:
+				self.create_customer_address(customer_name, shopify_address, address_type, email)
+				frappe.log_error(
+					message=f"Successfully created {address_type} address for {customer_name}",
+					title="Customer Address Created"
+				)
+			except Exception as addr_error:
+				frappe.log_error(
+					message=f"FAILED to create {address_type} address for {customer_name}: {str(addr_error)}\n{frappe.get_traceback()}",
+					title="Customer Address Creation FAILED"
+				)
+				raise
 		else:
 			# Address exists - update it (inline addresses) or skip (saved addresses with ID)
 			if shopify_address_id:
