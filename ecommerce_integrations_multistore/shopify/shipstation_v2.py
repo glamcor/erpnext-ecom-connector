@@ -445,9 +445,12 @@ def cancel_shipstation_shipment(delivery_note):
             timeout=30
         )
         
-        if response.status_code == 200:
+        # HTTP 200 or 204 are both success codes for cancellation
+        # 200 = OK with response body
+        # 204 = No Content (successful, but no response body)
+        if response.status_code in [200, 204]:
             frappe.log_error(
-                message=f"Successfully cancelled ShipStation shipment {shipment_id} for Delivery Note {delivery_note.name}",
+                message=f"Successfully cancelled ShipStation shipment {shipment_id} for Delivery Note {delivery_note.name} (HTTP {response.status_code})",
                 title="ShipStation Shipment Cancelled"
             )
             
