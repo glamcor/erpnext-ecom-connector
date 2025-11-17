@@ -227,21 +227,52 @@ class ShopifyCustomer(EcommerceCustomer):
 		address_type: str = "Billing",
 		email: str | None = None,
 	) -> None:
-		old_address = self.get_customer_address_doc(address_type)
+		"""Update or create customer address.
+		
+		Strategy:
+		- If Shopify address has ID: Look up by shopify_address_id (saved customer address)
+		- If no ID: Look up by address_title with type suffix (inline order address)
+		- If address content changed: Update existing (for inline addresses)
+		- If new address with ID: Create new (preserves multiple saved addresses)
+		"""
+		shopify_address_id = shopify_address.get("id")
+		
+		# Try to find existing address
+		if shopify_address_id:
+			# Saved customer address - lookup by Shopify ID
+			old_address = frappe.db.get_value(
+				"Address",
+				{ADDRESS_ID_FIELD: shopify_address_id},
+				"name"
+			)
+			if old_address:
+				old_address = frappe.get_doc("Address", old_address)
+		else:
+			# Inline order address - lookup by title with type suffix
+			old_address = self.get_customer_address_doc(address_type)
 
 		if not old_address:
+			# Address doesn't exist - create new
 			self.create_customer_address(customer_name, shopify_address, address_type, email)
 		else:
-			exclude_in_update = ["address_title", "address_type"]
-			new_values = _map_address_fields(shopify_address, customer_name, address_type, email)
+			# Address exists - update it (inline addresses) or skip (saved addresses with ID)
+			if shopify_address_id:
+				# Saved address - only update if data changed
+				# For now, skip update to preserve historical data
+				# (User can manage saved addresses in Shopify)
+				pass
+			else:
+				# Inline address - update with latest data
+				exclude_in_update = ["address_title", "address_type"]
+				new_values = _map_address_fields(shopify_address, customer_name, address_type, email)
 
-			old_address.update({k: v for k, v in new_values.items() if k not in exclude_in_update})
-			old_address.flags.ignore_mandatory = True
-			old_address.save()
+				old_address.update({k: v for k, v in new_values.items() if k not in exclude_in_update})
+				old_address.flags.ignore_mandatory = True
+				old_address.save()
 			
 			# For multi-store, update address-store link
-			if self.store_name and shopify_address.get("id"):
-				self._add_address_store_link(shopify_address.get("id"))
+			if self.store_name and shopify_address_id:
+				self._add_address_store_link(shopify_address_id)
 
 	def _add_address_store_link(self, shopify_address_id: str) -> None:
 		"""Add address-store link to multi-store child table."""
@@ -346,10 +377,23 @@ class ShopifyCustomer(EcommerceCustomer):
 
 def _map_address_fields(shopify_address, customer_name, address_type, email):
 	"""returns dict with shopify address fields mapped to equivalent ERPNext fields"""
+	
+	# Build unique address title
+	# Option A: Use Shopify address ID if available (customer saved addresses)
+	# Fallback: Use address type suffix (order inline addresses without ID)
+	shopify_address_id = shopify_address.get("id")
+	if shopify_address_id:
+		# Customer saved address - use ID for uniqueness
+		address_title = f"{customer_name}-{shopify_address_id}"
+	else:
+		# Order inline address - use type suffix
+		# This will be updated if address changes (same as current behavior)
+		address_title = f"{customer_name}-{address_type}"
+	
 	address_fields = {
-		"address_title": customer_name,
+		"address_title": address_title,
 		"address_type": address_type,
-		ADDRESS_ID_FIELD: shopify_address.get("id"),
+		ADDRESS_ID_FIELD: shopify_address_id,
 		"address_line1": shopify_address.get("address1") or "Address 1",
 		"address_line2": shopify_address.get("address2"),
 		"city": shopify_address.get("city"),
