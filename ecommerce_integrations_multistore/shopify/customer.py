@@ -238,8 +238,13 @@ class ShopifyCustomer(EcommerceCustomer):
 		shopify_address_id = shopify_address.get("id")
 		
 		# Try to find existing address
+		old_address = None
 		if shopify_address_id:
 			# Saved customer address - lookup by Shopify ID
+			frappe.log_error(
+				message=f"Looking for {address_type} address by Shopify ID: {shopify_address_id}",
+				title="Address Lookup - By ID"
+			)
 			old_address = frappe.db.get_value(
 				"Address",
 				{ADDRESS_ID_FIELD: shopify_address_id},
@@ -247,9 +252,21 @@ class ShopifyCustomer(EcommerceCustomer):
 			)
 			if old_address:
 				old_address = frappe.get_doc("Address", old_address)
+				frappe.log_error(
+					message=f"Found {address_type} address by ID: {old_address.name}",
+					title="Address Lookup - Found By ID"
+				)
 		else:
 			# Inline order address - lookup by title with type suffix
+			frappe.log_error(
+				message=f"Looking for {address_type} address using get_customer_address_doc for customer {customer_name}",
+				title="Address Lookup - By Type"
+			)
 			old_address = self.get_customer_address_doc(address_type)
+			frappe.log_error(
+				message=f"get_customer_address_doc returned: {old_address.name if old_address else None}",
+				title="Address Lookup - Result"
+			)
 
 		if not old_address:
 			# Address doesn't exist - create new
