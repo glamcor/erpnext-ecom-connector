@@ -285,6 +285,13 @@
    "description": "Automatically send Delivery Notes to ShipStation when created"
   },
   {
+   "fieldname": "shipstation_all_countries",
+   "fieldtype": "Check",
+   "label": "Send All Orders to ShipStation (including international)",
+   "default": "0",
+   "description": "Enable this if your warehouse ships internationally via ShipStation. If unchecked, only US domestic orders are sent."
+  },
+  {
    "fieldname": "section_break_22",
    "fieldtype": "Section Break"
   },

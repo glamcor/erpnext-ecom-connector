@@ -373,13 +373,19 @@ def update_shipstation_integration_for_v2(delivery_note, setting):
         )
         return {"success": False, "error": "ShipStation integration disabled"}
     
-    # Check if this is a US domestic order
-    if not is_us_domestic_order(delivery_note):
-        frappe.log_error(
-            message=f"Skipping ShipStation for non-US order {delivery_note.name}",
-            title="ShipStation - International Order"
-        )
-        return {"success": False, "error": "ShipStation only handles US domestic orders"}
+    # Check if order should be sent to ShipStation based on country
+    # If shipstation_all_countries is enabled, send all orders
+    # Otherwise, only send US domestic orders
+    send_all_countries = hasattr(setting, 'shipstation_all_countries') and setting.shipstation_all_countries
+    
+    if not send_all_countries:
+        # Only send US domestic orders
+        if not is_us_domestic_order(delivery_note):
+            frappe.log_error(
+                message=f"Skipping ShipStation for non-US order {delivery_note.name}. Enable 'Send All Orders to ShipStation' to include international orders.",
+                title="ShipStation - International Order Skipped"
+            )
+            return {"success": False, "error": "ShipStation only handles US domestic orders for this store"}
     
     # Check if ShipStation V2 API key is configured
     # Must use get_password() for Password fields, not direct access
