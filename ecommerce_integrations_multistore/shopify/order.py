@@ -1728,6 +1728,9 @@ def cancel_order(payload, request_id=None, store_name=None):
 					title="Cancel Order - Cancelling Invoice"
 				)
 				
+				# Reload the invoice to get latest timestamp (Payment Entry cancellation modifies it)
+				si_doc.reload()
+				
 				si_doc.add_comment(
 					comment_type="Info",
 					text=f"Order cancelled and refunded in Shopify. Status: {order_status}"
@@ -1737,6 +1740,22 @@ def cancel_order(payload, request_id=None, store_name=None):
 				frappe.log_error(
 					message=f"Successfully cancelled Sales Invoice {sales_invoice.name} for cancelled Shopify order {order_id}",
 					title="Shopify Order Cancelled - Invoice Cancelled"
+				)
+			except frappe.exceptions.TimestampMismatchError as ts_error:
+				# If still timestamp error, try one more time with fresh reload
+				frappe.log_error(
+					message=f"Timestamp mismatch on first attempt, reloading and retrying for {sales_invoice.name}",
+					title="Cancel Order - Timestamp Retry"
+				)
+				si_doc = frappe.get_doc("Sales Invoice", sales_invoice.name)
+				si_doc.add_comment(
+					comment_type="Info",
+					text=f"Order cancelled and refunded in Shopify. Status: {order_status}"
+				)
+				si_doc.cancel()
+				frappe.log_error(
+					message=f"Successfully cancelled Sales Invoice {sales_invoice.name} on retry",
+					title="Shopify Order Cancelled - Invoice Cancelled (Retry)"
 				)
 			except Exception as cancel_error:
 				frappe.log_error(
