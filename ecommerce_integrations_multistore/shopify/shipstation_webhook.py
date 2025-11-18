@@ -11,16 +11,16 @@ from ecommerce_integrations_multistore.shopify.constants import STORE_LINK_FIELD
 def handle_shipstation_webhook():
 	"""Handle incoming webhooks from ShipStation.
 	
-	ShipStation sends webhooks for events like:
-	- shipment_shipped: When label is created and shipment is shipped
-	- shipment_delivered: When shipment is delivered
-	- track_updated: When tracking status updates
+	ShipStation V2 sends webhooks for events like:
+	- (V2) On Fulfillment Shipped: When label is created and shipment is shipped
+	- (V2) On Fulfillment Delivered: When shipment is delivered
 	
-	Webhook payload contains:
-	- shipment_id
+	V2 Webhook payload contains:
+	- fulfillment object with shipment details
 	- tracking_number
-	- carrier_code
-	- shipping_cost
+	- carrier_id and service_code
+	- shipping_cost (label cost)
+	- shipment_id
 	- external_shipment_id (our Delivery Note number)
 	"""
 	try:
@@ -29,26 +29,20 @@ def handle_shipstation_webhook():
 		
 		# Log the raw webhook for debugging
 		frappe.log_error(
-			message=f"ShipStation Webhook Received:\n{frappe.as_json(webhook_data, indent=2)}",
-			title="ShipStation Webhook - Raw Data"
+			message=f"ShipStation V2 Webhook Received:\n{frappe.as_json(webhook_data, indent=2)}",
+			title="ShipStation V2 Webhook - Raw Data"
 		)
 		
-		# Extract event type and resource
-		resource_type = webhook_data.get("resource_type")
-		resource_url = webhook_data.get("resource_url")
+		# ShipStation V2 webhooks have different structure
+		# Extract the fulfillment data
+		fulfillment = webhook_data.get("fulfillment", {})
 		
-		# Parse the webhook data (ShipStation sends different structures for different events)
-		if resource_type == "SHIP_NOTIFY":
-			# Shipment shipped event
-			handle_shipment_shipped(webhook_data)
-		elif resource_type == "ITEM_SHIP_NOTIFY":
-			# Item shipped (for partial shipments)
-			handle_shipment_shipped(webhook_data)
+		# If there's a fulfillment object, process it
+		if fulfillment:
+			handle_shipment_shipped(fulfillment)
 		else:
-			frappe.log_error(
-				message=f"Unknown webhook type: {resource_type}",
-				title="ShipStation Webhook - Unknown Type"
-			)
+			# Fallback: try to process the webhook data directly
+			handle_shipment_shipped(webhook_data)
 		
 		return {"status": "success"}
 		
@@ -70,11 +64,31 @@ def handle_shipment_shipped(webhook_data):
 	"""
 	try:
 		# Extract shipment data from webhook
-		# ShipStation V2 webhook structure
+		# ShipStation V2 "On Fulfillment Shipped" webhook structure
+		# The fulfillment may contain shipment data or it could be at root level
 		shipment_id = webhook_data.get("shipment_id")
-		tracking_number = webhook_data.get("tracking_number")
-		carrier_code = webhook_data.get("carrier_code")
-		shipping_cost = webhook_data.get("shipping_cost") or webhook_data.get("shipment_cost")
+		
+		# V2 tracking can be in various locations
+		tracking_number = (
+			webhook_data.get("tracking_number") or 
+			webhook_data.get("tracking_code") or
+			webhook_data.get("label", {}).get("tracking_number")
+		)
+		
+		# Carrier info
+		carrier_code = (
+			webhook_data.get("carrier_code") or
+			webhook_data.get("carrier_id") or
+			webhook_data.get("label", {}).get("carrier_code")
+		)
+		
+		# Shipping cost (label cost)
+		shipping_cost = (
+			webhook_data.get("shipping_cost") or 
+			webhook_data.get("shipment_cost") or
+			webhook_data.get("label", {}).get("charge", {}).get("amount")
+		)
+		
 		external_shipment_id = webhook_data.get("external_shipment_id")
 		
 		frappe.log_error(
