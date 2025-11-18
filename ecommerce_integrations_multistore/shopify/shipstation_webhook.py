@@ -34,15 +34,18 @@ def handle_shipstation_webhook():
 		)
 		
 		# ShipStation V2 webhooks have different structure
-		# Extract the fulfillment data
-		fulfillment = webhook_data.get("fulfillment", {})
+		# The payload structure will be logged in "ShipStation V2 Webhook - Raw Data"
+		# We'll handle it flexibly to support various V2 structures
 		
-		# If there's a fulfillment object, process it
-		if fulfillment:
-			handle_shipment_shipped(fulfillment)
-		else:
-			# Fallback: try to process the webhook data directly
-			handle_shipment_shipped(webhook_data)
+		# Check for nested data structures
+		fulfillment = webhook_data.get("fulfillment")
+		shipment = webhook_data.get("shipment")
+		resource = webhook_data.get("resource")
+		
+		# Process the most specific object available, or the root data
+		data_to_process = fulfillment or shipment or resource or webhook_data
+		
+		handle_shipment_shipped(data_to_process)
 		
 		return {"status": "success"}
 		
