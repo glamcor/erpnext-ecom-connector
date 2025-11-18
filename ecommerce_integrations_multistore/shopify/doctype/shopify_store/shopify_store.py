@@ -248,6 +248,27 @@ def setup_custom_fields():
 			read_only=1,
 			print_hide=1,
 		),
+		dict(
+			fieldname="shipstation_tracking_number",
+			label="Tracking Number",
+			fieldtype="Data",
+			insert_after="shipstation_shipment_id",
+			read_only=1,
+		),
+		dict(
+			fieldname="shipstation_carrier",
+			label="Shipping Carrier",
+			fieldtype="Data",
+			insert_after="shipstation_tracking_number",
+			read_only=1,
+		),
+		dict(
+			fieldname="shipstation_shipping_cost",
+			label="Actual Shipping Cost",
+			fieldtype="Currency",
+			insert_after="shipstation_carrier",
+			read_only=1,
+		),
 	],
 		"Sales Invoice": [
 			dict(
