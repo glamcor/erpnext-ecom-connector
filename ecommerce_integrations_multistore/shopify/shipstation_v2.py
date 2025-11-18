@@ -155,16 +155,13 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
         "Accept": "application/json"
     }
     
-    # Debug: Log API key details and verify header format
-    # TEMPORARY: Log full API key for debugging (REMOVE AFTER FIXING)
-    expected_key = "wZ9hqcBMZAgdbSj2VaqTnTzk2BIidQfSc6JxWZoJD5I"
-    key_matches = (api_key == expected_key) if api_key else False
-    
-    # Show actual key for debugging
-    frappe.log_error(
-        message=f"FULL API KEY (TEMPORARY DEBUG):\n'{api_key}'\n\nExpected:\n'{expected_key}'\n\nLength: {len(api_key) if api_key else 0}\nKey matches: {key_matches}\nHeader Keys: {list(headers.keys())}\nAPI-Key header exists: {'API-Key' in headers}",
-        title="ShipStation V2 Debug - Auth"
-    )
+    # API key validation (without logging the actual key for security)
+    if not api_key or len(api_key) < 20:
+        frappe.log_error(
+            message=f"Invalid API key length: {len(api_key) if api_key else 0}. Expected 40+ characters.",
+            title="ShipStation V2 - Invalid API Key"
+        )
+        return {"success": False, "error": "Invalid API key"}
     
     # Get customer and shipping details
     customer = frappe.get_doc("Customer", delivery_note.customer)
