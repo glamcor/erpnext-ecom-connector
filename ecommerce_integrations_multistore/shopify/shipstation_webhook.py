@@ -7,6 +7,72 @@ import json
 from ecommerce_integrations_multistore.shopify.constants import STORE_LINK_FIELD
 
 
+def fetch_shipment_from_url(resource_url):
+	"""Fetch shipment data from ShipStation resource_url.
+	
+	Args:
+		resource_url: URL to fetch shipment data from
+		
+	Returns:
+		dict: Shipment data or None if fetch fails
+	"""
+	try:
+		# Get an enabled Shopify Store with ShipStation configured
+		stores = frappe.get_all(
+			"Shopify Store",
+			filters={"enabled": 1, "shipstation_enabled": 1},
+			limit=1
+		)
+		
+		if not stores:
+			frappe.log_error(
+				message="No enabled store with ShipStation configured to fetch API key",
+				title="ShipStation Webhook - No Store"
+			)
+			return None
+		
+		setting = frappe.get_doc("Shopify Store", stores[0].name)
+		api_key = setting.get_password("shipstation_api_key")
+		
+		if not api_key:
+			frappe.log_error(
+				message=f"No API key configured for store {setting.name}",
+				title="ShipStation Webhook - No API Key"
+			)
+			return None
+		
+		# Fetch shipment data from resource_url
+		import requests
+		
+		headers = {
+			"API-Key": api_key,
+			"Accept": "application/json"
+		}
+		
+		response = requests.get(resource_url, headers=headers, timeout=10)
+		response.raise_for_status()
+		
+		data = response.json()
+		
+		frappe.log_error(
+			message=f"Fetched shipment data from {resource_url}:\n{frappe.as_json(data, indent=2)}",
+			title="ShipStation Webhook - Fetched Data"
+		)
+		
+		# ShipStation returns {"shipments": [...]} or single shipment
+		if "shipments" in data and data["shipments"]:
+			return data["shipments"][0]
+		else:
+			return data
+			
+	except Exception as e:
+		frappe.log_error(
+			message=f"Error fetching shipment from {resource_url}: {str(e)}\n{frappe.get_traceback()}",
+			title="ShipStation Webhook - Fetch Error"
+		)
+		return None
+
+
 @frappe.whitelist(allow_guest=True)
 def handle_shipstation_webhook():
 	"""Handle incoming webhooks from ShipStation.
@@ -38,25 +104,22 @@ def handle_shipstation_webhook():
 		resource_url = webhook_data.get("resource_url")
 		
 		if resource_type and resource_url:
-			# Webhook sends URL instead of data - need to fetch shipment details
+			# Standard webhook format - fetch shipment data from resource_url
 			frappe.log_error(
-				message=f"Webhook sent resource_url: {resource_url}. Attempting to fetch shipment data...",
+				message=f"Webhook sent resource_url: {resource_url}. Fetching shipment data...",
 				title="ShipStation Webhook - Fetching Data"
 			)
 			
-			# Extract shipment ID from URL
-			import re
-			shipment_id_match = re.search(r'shipmentId=(\d+)', resource_url)
+			# Fetch shipment data from the resource_url
+			# We need the API key to fetch, so we'll look up a store that has ShipStation enabled
+			shipment_data = fetch_shipment_from_url(resource_url)
 			
-			if shipment_id_match:
-				shipment_id = shipment_id_match.group(1)
-				# Process using the shipment ID from URL
-				# We can look up the DN by the shipment ID we stored
-				handle_shipment_by_id(shipment_id)
+			if shipment_data:
+				handle_shipment_shipped(shipment_data)
 			else:
 				frappe.log_error(
-					message=f"Could not extract shipment ID from resource_url: {resource_url}",
-					title="ShipStation Webhook - Invalid URL"
+					message=f"Failed to fetch shipment data from {resource_url}",
+					title="ShipStation Webhook - Fetch Failed"
 				)
 			
 			return {"status": "success"}
@@ -154,33 +217,41 @@ def handle_shipment_shipped(webhook_data):
 		webhook_data: Webhook payload from ShipStation
 	"""
 	try:
-		# Extract shipment data from webhook
-		# ShipStation V2 "On Fulfillment Shipped" webhook structure
-		# The fulfillment may contain shipment data or it could be at root level
-		shipment_id = webhook_data.get("shipment_id")
+		# Extract shipment data - handle both V1/V2 API response formats
+		# ShipStation API returns camelCase fields
 		
-		# V2 tracking can be in various locations
-		tracking_number = (
-			webhook_data.get("tracking_number") or 
-			webhook_data.get("tracking_code") or
-			webhook_data.get("label", {}).get("tracking_number")
+		# Shipment ID (se-XXXXX or numeric)
+		shipment_id = (
+			webhook_data.get("shipment_id") or
+			webhook_data.get("shipmentId")
 		)
 		
-		# Carrier info
+		# Tracking number
+		tracking_number = (
+			webhook_data.get("tracking_number") or
+			webhook_data.get("trackingNumber")
+		)
+		
+		# Carrier code
 		carrier_code = (
 			webhook_data.get("carrier_code") or
-			webhook_data.get("carrier_id") or
-			webhook_data.get("label", {}).get("carrier_code")
+			webhook_data.get("carrierCode") or
+			webhook_data.get("serviceCode")
 		)
 		
-		# Shipping cost (label cost)
+		# Shipping cost
 		shipping_cost = (
-			webhook_data.get("shipping_cost") or 
+			webhook_data.get("shipping_cost") or
 			webhook_data.get("shipment_cost") or
-			webhook_data.get("label", {}).get("charge", {}).get("amount")
+			webhook_data.get("shipmentCost")
 		)
 		
+		# External shipment ID (our DN number)
+		# Can be in advancedOptions or at root level
 		external_shipment_id = webhook_data.get("external_shipment_id")
+		if not external_shipment_id:
+			advanced_options = webhook_data.get("advancedOptions", {})
+			external_shipment_id = advanced_options.get("customField1") or advanced_options.get("customField2") or advanced_options.get("customField3")
 		
 		frappe.log_error(
 			message=f"Shipment Shipped:\nShipment ID: {shipment_id}\nExternal ID: {external_shipment_id}\nTracking: {tracking_number}\nCarrier: {carrier_code}\nCost: {shipping_cost}",
