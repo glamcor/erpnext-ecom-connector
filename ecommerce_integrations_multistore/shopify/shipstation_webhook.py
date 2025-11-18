@@ -124,15 +124,15 @@ def handle_shipment_shipped(webhook_data):
 		# Update the Delivery Note with tracking information
 		dn = frappe.get_doc("Delivery Note", delivery_note)
 		
-		# Set tracking fields (using custom fields)
+		# Set tracking fields (using custom_ prefix as they're created via Custom Field)
 		if tracking_number:
-			dn.db_set("shipstation_tracking_number", tracking_number, update_modified=False)
+			dn.db_set("custom_shipstation_tracking_number", tracking_number, update_modified=False)
 		
 		if carrier_code:
-			dn.db_set("shipstation_carrier", carrier_code, update_modified=False)
+			dn.db_set("custom_shipstation_carrier", carrier_code, update_modified=False)
 		
 		if shipping_cost:
-			dn.db_set("shipstation_shipping_cost", flt(shipping_cost), update_modified=False)
+			dn.db_set("custom_shipstation_shipping_cost", flt(shipping_cost), update_modified=False)
 		
 		# Add comment with tracking info
 		dn.add_comment(
