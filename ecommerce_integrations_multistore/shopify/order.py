@@ -202,13 +202,14 @@ def update_draft_invoice(invoice_name, shopify_order, store_name, retry_count=0)
 	    retry_count: Number of retries for handling concurrent modifications
 	"""
 	# Handle concurrent modifications with retries
-	max_retries = 3
+	max_retries = 5  # Increased from 3 to 5
 	if retry_count >= max_retries:
 		frappe.log_error(
-			message=f"Failed to update invoice {invoice_name} after {max_retries} retries due to concurrent modifications",
+			message=f"Failed to update invoice {invoice_name} after {max_retries} retries due to concurrent modifications. Invoice may be locked by another process.",
 			title="Invoice Update Failed - Max Retries"
 		)
-		return None
+		# Don't fail completely - the invoice exists, just couldn't update it
+		return frappe.get_doc("Sales Invoice", invoice_name)
 	
 	try:
 		invoice = frappe.get_doc("Sales Invoice", invoice_name)
@@ -313,9 +314,9 @@ def update_draft_invoice(invoice_name, shopify_order, store_name, retry_count=0)
 			message=f"Invoice {invoice_name} was modified by another process, retrying... (attempt {retry_count + 1})",
 			title="Concurrent Modification - Retrying"
 		)
-		# Small delay before retry to reduce contention
+		# Longer delay before retry to reduce contention
 		import time
-		time.sleep(0.5 * (retry_count + 1))  # Exponential backoff
+		time.sleep(1.0 * (retry_count + 1))  # Exponential backoff: 1s, 2s, 3s, 4s, 5s
 		return update_draft_invoice(invoice_name, shopify_order, store_name, retry_count + 1)
 	except Exception as e:
 		frappe.log_error(
