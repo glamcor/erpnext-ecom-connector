@@ -97,6 +97,7 @@ class EcommerceCustomer:
 				).insert(ignore_mandatory=True)
 			except frappe.DuplicateEntryError:
 				# Another process created this address, try to get it and update
+				address_title = address.get("address_title")
 				existing_address = frappe.get_doc("Address", address_title)
 				
 				# Ensure customer link exists

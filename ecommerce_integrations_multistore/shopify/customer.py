@@ -214,6 +214,11 @@ class ShopifyCustomer(EcommerceCustomer):
 
 		customer_name = cstr(customer.get("first_name")) + " " + cstr(customer.get("last_name"))
 		email = customer.get("email")
+		
+		frappe.log_error(
+			message=f"update_existing_addresses called for customer: '{customer_name}', has billing: {bool(billing_address)}, has shipping: {bool(shipping_address)}",
+			title="Update Addresses Debug"
+		)
 
 		if billing_address:
 			self._update_existing_address(customer_name, billing_address, "Billing", email)
