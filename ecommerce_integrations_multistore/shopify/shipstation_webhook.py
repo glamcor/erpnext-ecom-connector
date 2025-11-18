@@ -33,10 +33,26 @@ def handle_shipstation_webhook():
 			title="ShipStation V2 Webhook - Raw Data"
 		)
 		
-		# ShipStation V2 webhooks have different structure
-		# The payload structure will be logged in "ShipStation V2 Webhook - Raw Data"
-		# We'll handle it flexibly to support various V2 structures
+		# Check if this is a V1 or V2 webhook
+		resource_type = webhook_data.get("resource_type")
+		resource_url = webhook_data.get("resource_url")
 		
+		if resource_type and resource_url:
+			# V1 webhook - only sends URL, need to fetch data
+			frappe.log_error(
+				message=f"Received V1 webhook (SHIP_NOTIFY). Need to fetch data from: {resource_url}",
+				title="ShipStation V1 Webhook Detected"
+			)
+			# V1 webhooks require fetching the shipment data
+			# For now, we can't process V1 webhooks without API credentials
+			# User should configure V2 webhook instead
+			frappe.log_error(
+				message="V1 webhooks are not supported. Please configure '(V2) On Fulfillment Shipped' webhook in ShipStation instead of 'SHIP_NOTIFY'.",
+				title="ShipStation Webhook - V1 Not Supported"
+			)
+			return {"status": "error", "message": "V1 webhooks not supported, use V2"}
+		
+		# V2 webhook - contains data directly
 		# Check for nested data structures
 		fulfillment = webhook_data.get("fulfillment")
 		shipment = webhook_data.get("shipment")
