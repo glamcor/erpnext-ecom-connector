@@ -292,8 +292,12 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
             external_id = shipment_info.get("external_shipment_id")
         
         # Persist shipment_id on Delivery Note
+        # Try custom_ prefix first (if field was created manually), then without
         if shipment_id:
-            delivery_note.db_set("shipstation_shipment_id", shipment_id, update_modified=False)
+            if hasattr(delivery_note, 'custom_shipstation_shipment_id'):
+                delivery_note.db_set("custom_shipstation_shipment_id", shipment_id, update_modified=False)
+            else:
+                delivery_note.db_set("shipstation_shipment_id", shipment_id, update_modified=False)
             frappe.log_error(
                 message=f"Successfully sent {delivery_note.name} to ShipStation.\nShipment ID: {shipment_id}\nExternal ID: {external_id}",
                 title="ShipStation V2 Success"

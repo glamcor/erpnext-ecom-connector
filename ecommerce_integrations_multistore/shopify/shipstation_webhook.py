@@ -38,19 +38,28 @@ def handle_shipstation_webhook():
 		resource_url = webhook_data.get("resource_url")
 		
 		if resource_type and resource_url:
-			# V1 webhook - only sends URL, need to fetch data
+			# Webhook sends URL instead of data - need to fetch shipment details
 			frappe.log_error(
-				message=f"Received V1 webhook (SHIP_NOTIFY). Need to fetch data from: {resource_url}",
-				title="ShipStation V1 Webhook Detected"
+				message=f"Webhook sent resource_url: {resource_url}. Attempting to fetch shipment data...",
+				title="ShipStation Webhook - Fetching Data"
 			)
-			# V1 webhooks require fetching the shipment data
-			# For now, we can't process V1 webhooks without API credentials
-			# User should configure V2 webhook instead
-			frappe.log_error(
-				message="V1 webhooks are not supported. Please configure '(V2) On Fulfillment Shipped' webhook in ShipStation instead of 'SHIP_NOTIFY'.",
-				title="ShipStation Webhook - V1 Not Supported"
-			)
-			return {"status": "error", "message": "V1 webhooks not supported, use V2"}
+			
+			# Extract shipment ID from URL
+			import re
+			shipment_id_match = re.search(r'shipmentId=(\d+)', resource_url)
+			
+			if shipment_id_match:
+				shipment_id = shipment_id_match.group(1)
+				# Process using the shipment ID from URL
+				# We can look up the DN by the shipment ID we stored
+				handle_shipment_by_id(shipment_id)
+			else:
+				frappe.log_error(
+					message=f"Could not extract shipment ID from resource_url: {resource_url}",
+					title="ShipStation Webhook - Invalid URL"
+				)
+			
+			return {"status": "success"}
 		
 		# V2 webhook - contains data directly
 		# Check for nested data structures
@@ -71,6 +80,69 @@ def handle_shipstation_webhook():
 			title="ShipStation Webhook Error"
 		)
 		return {"status": "error", "message": str(e)}
+
+
+def handle_shipment_by_id(shipment_id):
+	"""Handle shipment notification when we only have the ShipStation shipment ID.
+	
+	This is used when ShipStation sends V1-style webhooks with just a URL.
+	We look up the Delivery Note by the shipment ID we stored earlier.
+	
+	Args:
+		shipment_id: ShipStation shipment ID (numeric, from V1 API)
+	"""
+	try:
+		# Convert to se- format if needed
+		if not shipment_id.startswith("se-"):
+			shipment_id = f"se-{shipment_id}"
+		
+		frappe.log_error(
+			message=f"Looking up Delivery Note by shipment ID: {shipment_id}",
+			title="ShipStation Webhook - DN Lookup"
+		)
+		
+		# Find Delivery Note by shipstation_shipment_id
+		delivery_note = frappe.db.get_value(
+			"Delivery Note",
+			{"custom_shipstation_shipment_id": shipment_id},
+			"name"
+		)
+		
+		if not delivery_note:
+			# Try without custom_ prefix in case field was created differently
+			delivery_note = frappe.db.get_value(
+				"Delivery Note",
+				{"shipstation_shipment_id": shipment_id},
+				"name"
+			)
+		
+		if delivery_note:
+			dn = frappe.get_doc("Delivery Note", delivery_note)
+			
+			# Since we don't have tracking/carrier from V1 webhook,
+			# just mark that ShipStation notified us of shipment
+			dn.add_comment(
+				comment_type="Info",
+				text=f"ShipStation notified shipment shipped. Shipment ID: {shipment_id}"
+			)
+			
+			frappe.log_error(
+				message=f"Updated Delivery Note {delivery_note} - shipment {shipment_id} was shipped (V1 webhook - no tracking data)",
+				title="ShipStation Shipment Notification"
+			)
+			
+			frappe.db.commit()
+		else:
+			frappe.log_error(
+				message=f"No Delivery Note found with shipstation_shipment_id: {shipment_id}",
+				title="ShipStation Webhook - DN Not Found"
+			)
+			
+	except Exception as e:
+		frappe.log_error(
+			message=f"Error handling shipment by ID {shipment_id}: {str(e)}\n{frappe.get_traceback()}",
+			title="ShipStation Webhook ID Lookup Error"
+		)
 
 
 def handle_shipment_shipped(webhook_data):
