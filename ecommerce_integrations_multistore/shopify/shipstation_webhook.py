@@ -399,7 +399,7 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 		)
 		
 		@temp_shopify_session
-		def create_shopify_fulfillment():
+		def create_shopify_fulfillment(store_name=None):
 			try:
 				frappe.log_error(
 					message=f"Inside Shopify session, about to import shopify module",
