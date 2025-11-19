@@ -44,6 +44,22 @@ def fetch_shipment_from_url(resource_url):
 		# Fetch shipment data from resource_url
 		import requests
 		
+		# Check if URL is V1 (ssapi.shipstation.com) or V2 (api.shipstation.com)
+		if "ssapi.shipstation.com" in resource_url:
+			# V1 URL - convert to V2 format
+			# V1: https://ssapi.shipstation.com/shipments?shipmentId=123456
+			# V2: https://api.shipstation.com/v2/shipments/se-123456
+			import re
+			shipment_id_match = re.search(r'shipmentId=(\d+)', resource_url)
+			if shipment_id_match:
+				shipment_id = shipment_id_match.group(1)
+				# Convert to V2 URL
+				resource_url = f"https://api.shipstation.com/v2/shipments/se-{shipment_id}"
+				frappe.log_error(
+					message=f"Converted V1 URL to V2: {resource_url}",
+					title="ShipStation Webhook - URL Conversion"
+				)
+		
 		headers = {
 			"API-Key": api_key,
 			"Accept": "application/json"
