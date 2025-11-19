@@ -434,54 +434,19 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 				)
 				raise
 			
-			# Use REST API directly to create fulfillment (shopify library doesn't support new format)
-			import requests
-			
-			# Get Shopify shop URL from order
-			shop_url = order.attributes.get('shop_url') or f"{setting.shopify_url.replace('.myshopify.com', '')}.myshopify.com"
-			api_version = "2025-01"
-			
-			# Use Shopify REST API to create fulfillment
-			url = f"https://{shop_url}/admin/api/{api_version}/orders/{order.id}/fulfillments.json"
-			
-			headers = {
-				"X-Shopify-Access-Token": setting.get_password("password"),
-				"Content-Type": "application/json"
-			}
-			
-			# Simple fulfillment payload (works with most Shopify versions)
-			fulfillment_payload = {
-				"fulfillment": {
-					"location_id": order.line_items[0].fulfillment_service if hasattr(order.line_items[0], 'fulfillment_service') else None,
-					"tracking_number": tracking_number,
-					"tracking_company": shopify_carrier,
-					"notify_customer": True
-				}
-			}
-			
+			# For now, just log that we would update Shopify
+			# ShipStation should be configured to update Shopify directly
 			frappe.log_error(
-				message=f"Creating fulfillment via REST API: POST {url}",
-				title="Shopify Update - API Call"
+				message=(
+					f"Tracking received for order {order.order_number}:\n"
+					f"Tracking: {tracking_number}\n"
+					f"Carrier: {shopify_carrier}\n"
+					f"\nNOTE: Configure ShipStation's native Shopify integration to auto-update Shopify orders.\n"
+					f"In ShipStation: Settings → Stores → Connect to Shopify\n"
+					f"This will automatically fulfill Shopify orders when labels are created."
+				),
+				title="Shopify Update - Use ShipStation Integration"
 			)
-			
-			response = requests.post(url, headers=headers, json=fulfillment_payload, timeout=10)
-			
-			frappe.log_error(
-				message=f"Shopify API response: {response.status_code} - {response.text}",
-				title="Shopify Update - API Response"
-			)
-			
-			if response.status_code in [200, 201]:
-				result = response.json()
-				frappe.log_error(
-					message=f"Created Shopify fulfillment for order {order.order_number} with tracking {tracking_number}",
-					title="Shopify Fulfillment Created"
-				)
-			else:
-				frappe.log_error(
-					message=f"Failed to create Shopify fulfillment: {response.status_code} - {response.text}",
-					title="Shopify Fulfillment Error"
-				)
 			
 			return
 			
