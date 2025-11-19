@@ -400,17 +400,39 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 		
 		@temp_shopify_session
 		def create_shopify_fulfillment():
-			import shopify
-			
-			# Get the Shopify order
-			order = shopify.Order.find(shopify_order_id)
-			
-			if not order:
+			try:
 				frappe.log_error(
-					message=f"Shopify order {shopify_order_id} not found",
-					title="Shopify Tracking Update - Order Not Found"
+					message=f"Inside Shopify session, about to import shopify module",
+					title="Shopify Update - In Session"
 				)
-				return
+				
+				import shopify
+				
+				frappe.log_error(
+					message=f"Shopify module imported, finding order {shopify_order_id}",
+					title="Shopify Update - Finding Order"
+				)
+				
+				# Get the Shopify order
+				order = shopify.Order.find(shopify_order_id)
+				
+				frappe.log_error(
+					message=f"Order found: {order.order_number if order else 'None'}",
+					title="Shopify Update - Order Found"
+				)
+				
+				if not order:
+					frappe.log_error(
+						message=f"Shopify order {shopify_order_id} not found",
+						title="Shopify Tracking Update - Order Not Found"
+					)
+					return
+			except Exception as session_error:
+				frappe.log_error(
+					message=f"Error in Shopify session: {str(session_error)}\n{frappe.get_traceback()}",
+					title="Shopify Update - Session Error"
+				)
+				raise
 			
 			# Create fulfillment with tracking
 			fulfillment_data = {
