@@ -434,37 +434,65 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 				)
 				raise
 			
-			# Create fulfillment with tracking
-			fulfillment_data = {
-				"notify_customer": True,
-				"tracking_info": {
-					"number": tracking_number,
-					"company": shopify_carrier
-				}
-			}
+			# For Shopify API 2025-01+, use fulfillment_orders endpoint
+			# Get fulfillment orders for this order
+			fulfillment_orders = shopify.FulfillmentOrder.find(order_id=order.id)
 			
-			# Get line items from order
-			line_items = []
-			for line_item in order.line_items:
-				line_items.append({
-					"id": line_item.id,
+			frappe.log_error(
+				message=f"Found {len(fulfillment_orders)} fulfillment orders for order {order.order_number}",
+				title="Shopify Update - Fulfillment Orders"
+			)
+			
+			if not fulfillment_orders:
+				frappe.log_error(
+					message=f"No fulfillment orders found for order {order.id}",
+					title="Shopify Fulfillment Error - No Orders"
+				)
+				return
+			
+			# Get the first unfulfilled fulfillment order
+			fulfillment_order = fulfillment_orders[0]
+			
+			# Build line items for fulfillment
+			line_items_by_id = []
+			for line_item in fulfillment_order.line_items:
+				line_items_by_id.append({
+					"fulfillment_order_line_item_id": line_item.id,
 					"quantity": line_item.quantity
 				})
 			
-			fulfillment_data["line_items"] = line_items
+			# Create fulfillment using modern API
+			fulfillment_data = {
+				"line_items_by_fulfillment_order": [
+					{
+						"fulfillment_order_id": fulfillment_order.id,
+						"fulfillment_order_line_items": line_items_by_id
+					}
+				],
+				"tracking_info": {
+					"number": tracking_number,
+					"company": shopify_carrier
+				},
+				"notify_customer": True
+			}
+			
+			frappe.log_error(
+				message=f"Creating fulfillment with data: {fulfillment_data}",
+				title="Shopify Update - Fulfillment Data"
+			)
 			
 			# Create the fulfillment
-			fulfillment = shopify.Fulfillment(fulfillment_data)
-			fulfillment.order_id = order.id
+			fulfillment = shopify.Fulfillment.create(fulfillment_data)
 			
-			if fulfillment.save():
+			if fulfillment and not hasattr(fulfillment, 'errors'):
 				frappe.log_error(
 					message=f"Created Shopify fulfillment for order {order.order_number} with tracking {tracking_number}",
 					title="Shopify Fulfillment Created"
 				)
 			else:
+				error_msg = fulfillment.errors.full_messages() if hasattr(fulfillment, 'errors') else "Unknown error"
 				frappe.log_error(
-					message=f"Failed to create Shopify fulfillment: {fulfillment.errors}",
+					message=f"Failed to create Shopify fulfillment: {error_msg}",
 					title="Shopify Fulfillment Error"
 				)
 		
