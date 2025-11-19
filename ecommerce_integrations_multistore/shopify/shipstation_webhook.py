@@ -344,9 +344,19 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 		carrier_code: Carrier code from ShipStation
 	"""
 	try:
+		frappe.log_error(
+			message=f"update_shopify_with_tracking called for DN {delivery_note.name}, Tracking: {tracking_number}, Carrier: {carrier_code}",
+			title="Shopify Update - Start"
+		)
+		
 		# Get Shopify order ID from Delivery Note
 		shopify_order_id = delivery_note.get("shopify_order_id")
 		store_name = delivery_note.get(STORE_LINK_FIELD)
+		
+		frappe.log_error(
+			message=f"Shopify Order ID: {shopify_order_id}, Store: {store_name}",
+			title="Shopify Update - Order Info"
+		)
 		
 		if not shopify_order_id or not store_name:
 			frappe.log_error(
@@ -358,10 +368,16 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 		# Get store settings
 		setting = frappe.get_doc("Shopify Store", store_name)
 		
+		frappe.log_error(
+			message=f"Got store settings for {store_name}",
+			title="Shopify Update - Store Settings"
+		)
+		
 		# Map ShipStation carrier codes to Shopify carrier names
 		carrier_mapping = {
 			"ups": "UPS",
 			"usps": "USPS",
+			"usps_ground_advantage": "USPS",
 			"fedex": "FedEx",
 			"dhl": "DHL",
 			"ups_ground_saver": "UPS"
@@ -369,8 +385,18 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 		
 		shopify_carrier = carrier_mapping.get(carrier_code.lower() if carrier_code else "", carrier_code or "Other")
 		
+		frappe.log_error(
+			message=f"Mapped carrier '{carrier_code}' to Shopify carrier '{shopify_carrier}'",
+			title="Shopify Update - Carrier Mapping"
+		)
+		
 		# Create fulfillment in Shopify
 		from ecommerce_integrations_multistore.shopify.connection import temp_shopify_session
+		
+		frappe.log_error(
+			message=f"About to create Shopify session and fulfillment for order {shopify_order_id}",
+			title="Shopify Update - Before Session"
+		)
 		
 		@temp_shopify_session
 		def create_shopify_fulfillment():
