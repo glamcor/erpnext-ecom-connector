@@ -468,8 +468,12 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 					title="Shopify Fulfillment Error"
 				)
 		
-		# Execute with Shopify session
-		create_shopify_fulfillment(setting)
+		# Execute with Shopify session (must pass store_name as kwarg)
+		frappe.log_error(
+			message=f"Calling create_shopify_fulfillment with store_name={store_name}",
+			title="Shopify Update - Calling Function"
+		)
+		create_shopify_fulfillment(store_name=store_name)
 		
 	except Exception as e:
 		frappe.log_error(
