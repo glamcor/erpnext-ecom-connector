@@ -440,19 +440,63 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 				)
 				raise
 			
-			# For now, just log that we would update Shopify
-			# ShipStation should be configured to update Shopify directly
-			frappe.log_error(
-				message=(
-					f"Tracking received for order {order.order_number}:\n"
-					f"Tracking: {tracking_number}\n"
-					f"Carrier: {shopify_carrier}\n"
-					f"\nNOTE: Configure ShipStation's native Shopify integration to auto-update Shopify orders.\n"
-					f"In ShipStation: Settings → Stores → Connect to Shopify\n"
-					f"This will automatically fulfill Shopify orders when labels are created."
-				),
-				title="Shopify Update - Use ShipStation Integration"
-			)
+			# Create fulfillment using shopify library's built-in method
+			try:
+				frappe.log_error(
+					message=f"Creating fulfillment for order {order.id} with tracking {tracking_number}",
+					title="Shopify Update - Creating Fulfillment"
+				)
+				
+				# Use the order's fulfill method (simpler than manual Fulfillment creation)
+				fulfillment_data = {
+					"tracking_number": tracking_number,
+					"tracking_company": shopify_carrier,
+					"notify_customer": True
+				}
+				
+				# Try to create fulfillment
+				fulfillment = shopify.Fulfillment()
+				fulfillment.tracking_number = tracking_number
+				fulfillment.tracking_company = shopify_carrier
+				fulfillment.notify_customer = True
+				fulfillment.order_id = order.id
+				
+				# Add all line items
+				fulfillment.line_items = []
+				for line_item in order.line_items:
+					fulfillment.line_items.append({
+						"id": line_item.id,
+						"quantity": line_item.quantity
+					})
+				
+				frappe.log_error(
+					message=f"Attempting to save fulfillment with {len(order.line_items)} line items",
+					title="Shopify Update - Saving Fulfillment"
+				)
+				
+				result = fulfillment.save()
+				
+				frappe.log_error(
+					message=f"Fulfillment save result: {result}, Errors: {fulfillment.errors if hasattr(fulfillment, 'errors') else 'None'}",
+					title="Shopify Update - Save Result"
+				)
+				
+				if result:
+					frappe.log_error(
+						message=f"Successfully created Shopify fulfillment for order {order.order_number} with tracking {tracking_number}",
+						title="Shopify Fulfillment Created"
+					)
+				else:
+					frappe.log_error(
+						message=f"Failed to create fulfillment. Errors: {fulfillment.errors.full_messages() if hasattr(fulfillment, 'errors') else 'Unknown'}",
+						title="Shopify Fulfillment Failed"
+					)
+					
+			except Exception as fulfillment_error:
+				frappe.log_error(
+					message=f"Exception creating fulfillment: {str(fulfillment_error)}\n{frappe.get_traceback()}",
+					title="Shopify Fulfillment Exception"
+				)
 			
 			return
 			
