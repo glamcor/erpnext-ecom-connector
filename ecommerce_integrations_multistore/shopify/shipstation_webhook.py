@@ -44,42 +44,56 @@ def fetch_shipment_from_url(resource_url):
 		# Fetch shipment data from resource_url
 		import requests
 		
-		# Check if URL is V1 (ssapi.shipstation.com) or V2 (api.shipstation.com)
-		if "ssapi.shipstation.com" in resource_url:
-			# V1 URL - convert to V2 format
-			# V1: https://ssapi.shipstation.com/shipments?shipmentId=123456
-			# V2: https://api.shipstation.com/v2/shipments/se-123456
-			import re
+		# Extract shipment ID from resource_url
+		import re
+		shipment_id = None
+		
+		if "ssapi.shipstation.com" in resource_url or "shipmentId=" in resource_url:
+			# V1 format URL with shipmentId parameter
 			shipment_id_match = re.search(r'shipmentId=(\d+)', resource_url)
 			if shipment_id_match:
-				shipment_id = shipment_id_match.group(1)
-				# Convert to V2 URL
-				resource_url = f"https://api.shipstation.com/v2/shipments/se-{shipment_id}"
-				frappe.log_error(
-					message=f"Converted V1 URL to V2: {resource_url}",
-					title="ShipStation Webhook - URL Conversion"
-				)
+				shipment_id = f"se-{shipment_id_match.group(1)}"
+		
+		if not shipment_id:
+			frappe.log_error(
+				message=f"Could not extract shipment ID from resource_url: {resource_url}",
+				title="ShipStation Webhook - Invalid URL"
+			)
+			return None
+		
+		frappe.log_error(
+			message=f"Extracted shipment ID: {shipment_id}. Fetching label data...",
+			title="ShipStation Webhook - Shipment ID"
+		)
+		
+		# Fetch LABELS (not shipments) - this is where tracking lives
+		labels_url = f"https://api.shipstation.com/v2/labels?shipment_id={shipment_id}"
 		
 		headers = {
 			"API-Key": api_key,
 			"Accept": "application/json"
 		}
 		
-		response = requests.get(resource_url, headers=headers, timeout=10)
+		response = requests.get(labels_url, headers=headers, timeout=10)
 		response.raise_for_status()
 		
 		data = response.json()
 		
 		frappe.log_error(
-			message=f"Fetched shipment data from {resource_url}:\n{frappe.as_json(data, indent=2)}",
-			title="ShipStation Webhook - Fetched Data"
+			message=f"Fetched label data from {labels_url}:\n{frappe.as_json(data, indent=2)}",
+			title="ShipStation Webhook - Label Data"
 		)
 		
-		# ShipStation returns {"shipments": [...]} or single shipment
-		if "shipments" in data and data["shipments"]:
-			return data["shipments"][0]
+		# V2 Labels API returns {"labels": [...]}
+		if "labels" in data and data["labels"]:
+			# Return the first label (most shipments have one label)
+			return data["labels"][0]
 		else:
-			return data
+			frappe.log_error(
+				message=f"No labels found in response for shipment {shipment_id}",
+				title="ShipStation Webhook - No Labels"
+			)
+			return None
 			
 	except Exception as e:
 		frappe.log_error(
@@ -233,41 +247,29 @@ def handle_shipment_shipped(webhook_data):
 		webhook_data: Webhook payload from ShipStation
 	"""
 	try:
-		# Extract shipment data - handle both V1/V2 API response formats
-		# ShipStation API returns camelCase fields
+		# Extract label data - V2 Labels API response structure
+		# Label object has: tracking_number, shipment_id, external_shipment_id, shipment_cost
 		
-		# Shipment ID (se-XXXXX or numeric)
-		shipment_id = (
-			webhook_data.get("shipment_id") or
-			webhook_data.get("shipmentId")
-		)
+		# Shipment ID
+		shipment_id = webhook_data.get("shipment_id")
 		
-		# Tracking number
-		tracking_number = (
-			webhook_data.get("tracking_number") or
-			webhook_data.get("trackingNumber")
-		)
+		# Tracking number (from label)
+		tracking_number = webhook_data.get("tracking_number")
 		
-		# Carrier code
-		carrier_code = (
-			webhook_data.get("carrier_code") or
-			webhook_data.get("carrierCode") or
-			webhook_data.get("serviceCode")
-		)
+		# Carrier and service code (from label)
+		carrier_id = webhook_data.get("carrier_id")
+		service_code = webhook_data.get("service_code")
+		carrier_code = service_code or carrier_id  # Use service_code preferentially
 		
-		# Shipping cost
-		shipping_cost = (
-			webhook_data.get("shipping_cost") or
-			webhook_data.get("shipment_cost") or
-			webhook_data.get("shipmentCost")
-		)
+		# Shipping cost (from label)
+		shipment_cost = webhook_data.get("shipment_cost", {})
+		if isinstance(shipment_cost, dict):
+			shipping_cost = shipment_cost.get("amount")
+		else:
+			shipping_cost = shipment_cost
 		
 		# External shipment ID (our DN number)
-		# Can be in advancedOptions or at root level
 		external_shipment_id = webhook_data.get("external_shipment_id")
-		if not external_shipment_id:
-			advanced_options = webhook_data.get("advancedOptions", {})
-			external_shipment_id = advanced_options.get("customField1") or advanced_options.get("customField2") or advanced_options.get("customField3")
 		
 		frappe.log_error(
 			message=f"Shipment Shipped:\nShipment ID: {shipment_id}\nExternal ID: {external_shipment_id}\nTracking: {tracking_number}\nCarrier: {carrier_code}\nCost: {shipping_cost}",
