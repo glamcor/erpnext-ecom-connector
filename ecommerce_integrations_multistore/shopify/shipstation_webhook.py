@@ -44,30 +44,36 @@ def fetch_shipment_from_url(resource_url):
 		# Fetch shipment data from resource_url
 		import requests
 		
-		# Extract shipment ID from resource_url
+		# Extract identifiers from resource_url
 		import re
-		shipment_id = None
 		
-		if "ssapi.shipstation.com" in resource_url or "shipmentId=" in resource_url:
-			# V1 format URL with shipmentId parameter
-			shipment_id_match = re.search(r'shipmentId=(\d+)', resource_url)
-			if shipment_id_match:
-				shipment_id = f"se-{shipment_id_match.group(1)}"
-		
-		if not shipment_id:
+		# Check if URL already points to labels endpoint with filters
+		if "/v2/labels?" in resource_url:
+			# V2 format: https://api.shipstation.com/v2/labels?batch_id=se-XXX&store_id=se-XXX
+			# Just use the URL as-is to fetch labels
 			frappe.log_error(
-				message=f"Could not extract shipment ID from resource_url: {resource_url}",
-				title="ShipStation Webhook - Invalid URL"
+				message=f"V2 Labels URL detected: {resource_url}. Fetching directly...",
+				title="ShipStation Webhook - V2 Labels URL"
 			)
-			return None
+			labels_url = resource_url
+		else:
+			# V1 format: https://ssapi.shipstation.com/shipments?shipmentId=123456
+			# Extract shipmentId and convert to V2 labels URL
+			shipment_id_match = re.search(r'shipmentId=(\d+)', resource_url)
+			if not shipment_id_match:
+				frappe.log_error(
+					message=f"Could not extract shipment ID from resource_url: {resource_url}",
+					title="ShipStation Webhook - Invalid URL"
+				)
+				return None
+			
+			shipment_id = f"se-{shipment_id_match.group(1)}"
+			labels_url = f"https://api.shipstation.com/v2/labels?shipment_id={shipment_id}"
 		
 		frappe.log_error(
-			message=f"Extracted shipment ID: {shipment_id}. Fetching label data...",
-			title="ShipStation Webhook - Shipment ID"
+			message=f"Fetching label data from: {labels_url}",
+			title="ShipStation Webhook - Fetching Labels"
 		)
-		
-		# Fetch LABELS (not shipments) - this is where tracking lives
-		labels_url = f"https://api.shipstation.com/v2/labels?shipment_id={shipment_id}"
 		
 		headers = {
 			"API-Key": api_key,
