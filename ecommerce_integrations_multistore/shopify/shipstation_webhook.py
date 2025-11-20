@@ -455,65 +455,101 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 					)
 					return
 				
-				# For Shopify API 2025-01, we need location_id
-				# Get the first location from the store or use a default
-				try:
-					locations = shopify.Location.find()
-					location_id = locations[0].id if locations else None
-				except:
-					location_id = None
-				
+				# Step 1: Get Fulfillment Orders for this order (required for 2025-01 API)
 				frappe.log_error(
-					message=f"Location ID for fulfillment: {location_id}",
-					title="Shopify Update - Location"
+					message=f"Fetching fulfillment orders for order {order.id}",
+					title="Shopify Update - Getting FO"
 				)
 				
-				# Try to create fulfillment with location_id
-				fulfillment = shopify.Fulfillment()
-				fulfillment.location_id = location_id
-				fulfillment.tracking_number = tracking_number
-				fulfillment.tracking_company = shopify_carrier
-				fulfillment.notify_customer = True
+				# Use REST API to get fulfillment orders (shopify library may not support this)
+				import requests
+				shop_url = setting.shopify_url
+				headers = {
+					"X-Shopify-Access-Token": setting.get_password("password"),
+					"Content-Type": "application/json"
+				}
 				
-				# Add all line items
-				fulfillment.line_items = []
-				for line_item in order.line_items:
-					fulfillment.line_items.append({
-						"id": line_item.id,
-						"quantity": line_item.quantity
-					})
+				fo_url = f"https://{shop_url}/admin/api/2025-01/orders/{order.id}/fulfillment_orders.json"
+				fo_response = requests.get(fo_url, headers=headers, timeout=10)
 				
 				frappe.log_error(
-					message=f"Attempting to save fulfillment with {len(order.line_items)} line items",
-					title="Shopify Update - Saving Fulfillment"
+					message=f"Fulfillment Orders API response: {fo_response.status_code} - {fo_response.text[:500]}",
+					title="Shopify Update - FO Response"
 				)
 				
-				# Log the exact payload and endpoint being used
-				try:
-					payload_dict = fulfillment.to_dict() if hasattr(fulfillment, 'to_dict') else fulfillment.attributes
-				except:
-					payload_dict = str(fulfillment)
+				if fo_response.status_code != 200:
+					frappe.log_error(
+						message=f"Failed to get fulfillment orders: {fo_response.status_code}",
+						title="Shopify Update - FO Failed"
+					)
+					return
+				
+				fo_data = fo_response.json()
+				fulfillment_orders = fo_data.get("fulfillment_orders", [])
+				
+				if not fulfillment_orders:
+					frappe.log_error(
+						message=f"No fulfillment orders found for order {order.order_number}",
+						title="Shopify Update - No FO"
+					)
+					return
+				
+				# Get the first fulfillment order (typical case: single FO per order)
+				fo_id = fulfillment_orders[0].get("id")
 				
 				frappe.log_error(
-					message=f"Fulfillment payload being sent:\n{frappe.as_json(payload_dict, indent=2)}\n\nOrder ID: {order.id}\nAPI Version: 2025-01\nEndpoint: /admin/api/2025-01/orders/{order.id}/fulfillments.json",
+					message=f"Using fulfillment order ID: {fo_id}",
+					title="Shopify Update - FO ID"
+				)
+				
+				# Step 2: Create fulfillment using 2025-01 format
+				# Use line_items_by_fulfillment_order (not line_items)
+				fulfillment_payload = {
+					"fulfillment": {
+						"line_items_by_fulfillment_order": [
+							{
+								"fulfillment_order_id": fo_id
+								# Omitting fulfillment_order_line_items = fulfill all items
+							}
+						],
+						"tracking_info": {
+							"number": tracking_number,
+							"company": shopify_carrier
+						},
+						"notify_customer": True
+					}
+				}
+				
+				# Log the exact 2025-01 format payload
+				frappe.log_error(
+					message=f"Fulfillment payload (2025-01 format):\n{frappe.as_json(fulfillment_payload, indent=2)}\n\nEndpoint: POST /admin/api/2025-01/fulfillments.json",
 					title="Shopify Update - Exact Payload"
 				)
 				
-				result = fulfillment.save()
+				# Step 3: POST to the modern fulfillments endpoint (not orders/{id}/fulfillments)
+				fulfillment_url = f"https://{shop_url}/admin/api/2025-01/fulfillments.json"
 				
-				frappe.log_error(
-					message=f"Fulfillment save result: {result}, Errors: {fulfillment.errors if hasattr(fulfillment, 'errors') else 'None'}",
-					title="Shopify Update - Save Result"
+				fulfillment_response = requests.post(
+					fulfillment_url,
+					headers=headers,
+					json=fulfillment_payload,
+					timeout=10
 				)
 				
-				if result:
+				frappe.log_error(
+					message=f"Shopify fulfillment response: {fulfillment_response.status_code} - {fulfillment_response.text}",
+					title="Shopify Update - Fulfillment Response"
+				)
+				
+				if fulfillment_response.status_code in [200, 201]:
+					result_data = fulfillment_response.json()
 					frappe.log_error(
-						message=f"Successfully created Shopify fulfillment for order {order.order_number} with tracking {tracking_number}",
+						message=f"Successfully created Shopify fulfillment for order {order.order_number} with tracking {tracking_number}\n\nResponse: {frappe.as_json(result_data, indent=2)}",
 						title="Shopify Fulfillment Created"
 					)
 				else:
 					frappe.log_error(
-						message=f"Failed to create fulfillment. Errors: {fulfillment.errors.full_messages() if hasattr(fulfillment, 'errors') else 'Unknown'}",
+						message=f"Failed to create fulfillment. Status: {fulfillment_response.status_code}, Response: {fulfillment_response.text}",
 						title="Shopify Fulfillment Failed"
 					)
 					
