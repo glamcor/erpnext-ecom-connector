@@ -474,6 +474,17 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 					title="Shopify Update - Saving Fulfillment"
 				)
 				
+				# Log the exact payload and endpoint being used
+				try:
+					payload_dict = fulfillment.to_dict() if hasattr(fulfillment, 'to_dict') else fulfillment.attributes
+				except:
+					payload_dict = str(fulfillment)
+				
+				frappe.log_error(
+					message=f"Fulfillment payload being sent:\n{frappe.as_json(payload_dict, indent=2)}\n\nOrder ID: {order.id}\nAPI Version: 2025-01\nEndpoint: /admin/api/2025-01/orders/{order.id}/fulfillments.json",
+					title="Shopify Update - Exact Payload"
+				)
+				
 				result = fulfillment.save()
 				
 				frappe.log_error(
