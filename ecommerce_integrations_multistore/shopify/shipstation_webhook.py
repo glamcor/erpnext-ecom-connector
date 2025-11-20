@@ -447,19 +447,33 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 					title="Shopify Update - Creating Fulfillment"
 				)
 				
-				# Use the order's fulfill method (simpler than manual Fulfillment creation)
-				fulfillment_data = {
-					"tracking_number": tracking_number,
-					"tracking_company": shopify_carrier,
-					"notify_customer": True
-				}
+				# Check if order is already fulfilled
+				if order.fulfillment_status == "fulfilled":
+					frappe.log_error(
+						message=f"Order {order.order_number} is already fulfilled. Skipping.",
+						title="Shopify Update - Already Fulfilled"
+					)
+					return
 				
-				# Try to create fulfillment
+				# For Shopify API 2025-01, we need location_id
+				# Get the first location from the store or use a default
+				try:
+					locations = shopify.Location.find()
+					location_id = locations[0].id if locations else None
+				except:
+					location_id = None
+				
+				frappe.log_error(
+					message=f"Location ID for fulfillment: {location_id}",
+					title="Shopify Update - Location"
+				)
+				
+				# Try to create fulfillment with location_id
 				fulfillment = shopify.Fulfillment()
+				fulfillment.location_id = location_id
 				fulfillment.tracking_number = tracking_number
 				fulfillment.tracking_company = shopify_carrier
 				fulfillment.notify_customer = True
-				fulfillment.order_id = order.id
 				
 				# Add all line items
 				fulfillment.line_items = []
