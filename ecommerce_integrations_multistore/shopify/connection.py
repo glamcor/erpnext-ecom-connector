@@ -119,9 +119,21 @@ def store_request_data() -> None:
 	if frappe.request:
 		shop_domain = frappe.get_request_header("X-Shopify-Shop-Domain")
 		hmac_header = frappe.get_request_header("X-Shopify-Hmac-Sha256")
+		event = frappe.request.headers.get("X-Shopify-Topic")
+		
+		# Log every webhook attempt for debugging
+		frappe.log_error(
+			message=f"Webhook received:\nShop Domain: {shop_domain}\nEvent: {event}\nHMAC present: {bool(hmac_header)}",
+			title="Shopify Webhook Received"
+		)
 
 		# Find the store by domain
 		store = get_store_by_domain(shop_domain)
+		
+		frappe.log_error(
+			message=f"Store lookup for domain '{shop_domain}': {'Found: ' + store.name if store else 'NOT FOUND'}",
+			title="Shopify Webhook - Store Lookup"
+		)
 		if not store:
 			# Try to decode request data for logging
 			try:
