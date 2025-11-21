@@ -149,10 +149,26 @@ def store_request_data() -> None:
 			frappe.throw(_("Store not found for domain {0}").format(shop_domain))
 
 		# Validate HMAC with store-specific secret
-		_validate_request(frappe.request, hmac_header, store)
+		try:
+			_validate_request(frappe.request, hmac_header, store)
+			frappe.log_error(
+				message=f"HMAC validation passed for store {store.name}",
+				title="Shopify Webhook - HMAC Valid"
+			)
+		except Exception as hmac_error:
+			frappe.log_error(
+				message=f"HMAC validation FAILED for store {store.name}: {str(hmac_error)}",
+				title="Shopify Webhook - HMAC Failed"
+			)
+			raise
 
 		data = json.loads(frappe.request.data)
 		event = frappe.request.headers.get("X-Shopify-Topic")
+		
+		frappe.log_error(
+			message=f"Processing event '{event}' for store {store.name}",
+			title="Shopify Webhook - Processing"
+		)
 
 		# Process with store context
 		process_request(data, event, store_name=store.name)
