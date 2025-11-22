@@ -307,15 +307,15 @@ def handle_shipment_shipped(webhook_data):
 		# Update the Delivery Note with tracking information
 		dn = frappe.get_doc("Delivery Note", delivery_note)
 		
-		# Set tracking fields (using custom_ prefix as they're created via Custom Field)
+		# Set tracking fields (use existing shipstation field names)
 		if tracking_number:
-			dn.db_set("custom_tracking_number", tracking_number, update_modified=False)
+			dn.db_set("custom_shipstation_tracking_number", tracking_number, update_modified=False)
 		
 		if carrier_code:
-			dn.db_set("custom_carrier", carrier_code, update_modified=False)
+			dn.db_set("custom_shipstation_carrier", carrier_code, update_modified=False)
 		
 		if shipping_cost:
-			dn.db_set("custom_shipping_cost", flt(shipping_cost), update_modified=False)
+			dn.db_set("custom_shipstation_shipping_cost", flt(shipping_cost), update_modified=False)
 		
 		# Set workflow state to "Shipped" (ShipStation shipments are shipped when label created)
 		dn.db_set("workflow_state", "Shipped", update_modified=False)

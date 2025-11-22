@@ -31,8 +31,8 @@ def on_delivery_note_update_after_submit(doc, method=None):
 		return
 	
 	# Check if tracking info is present
-	tracking_number = doc.get("custom_tracking_number")
-	carrier = doc.get("custom_carrier")
+	tracking_number = doc.get("custom_shipstation_tracking_number")
+	carrier = doc.get("custom_shipstation_carrier")
 	
 	if not tracking_number:
 		frappe.log_error(
@@ -110,4 +110,5 @@ def is_shopify_order_fulfilled(order_id, store_name):
 		)
 		# If we can't check, assume not fulfilled (safer to attempt update)
 		return False
+
 
