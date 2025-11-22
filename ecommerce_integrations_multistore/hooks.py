@@ -135,6 +135,9 @@ doc_events = {
 		],
 		"on_cancel": "ecommerce_integrations_multistore.unicommerce.invoice.on_cancel",
 	},
+	"Delivery Note": {
+		"on_update_after_submit": "ecommerce_integrations_multistore.shopify.delivery_note.on_delivery_note_update_after_submit",
+	},
 }
 
 # Scheduled Tasks

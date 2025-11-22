@@ -309,13 +309,16 @@ def handle_shipment_shipped(webhook_data):
 		
 		# Set tracking fields (using custom_ prefix as they're created via Custom Field)
 		if tracking_number:
-			dn.db_set("custom_shipstation_tracking_number", tracking_number, update_modified=False)
+			dn.db_set("custom_tracking_number", tracking_number, update_modified=False)
 		
 		if carrier_code:
-			dn.db_set("custom_shipstation_carrier", carrier_code, update_modified=False)
+			dn.db_set("custom_carrier", carrier_code, update_modified=False)
 		
 		if shipping_cost:
-			dn.db_set("custom_shipstation_shipping_cost", flt(shipping_cost), update_modified=False)
+			dn.db_set("custom_shipping_cost", flt(shipping_cost), update_modified=False)
+		
+		# Set workflow state to "Shipped" (ShipStation shipments are shipped when label created)
+		dn.db_set("workflow_state", "Shipped", update_modified=False)
 		
 		# Add comment with tracking info
 		dn.add_comment(
@@ -328,8 +331,17 @@ def handle_shipment_shipped(webhook_data):
 			title="ShipStation Tracking Updated"
 		)
 		
-		# Optional: Update Shopify with tracking info
-		update_shopify_with_tracking(dn, tracking_number, carrier_code)
+		# Update Shopify with tracking info
+		shopify_order_id = dn.get("shopify_order_id")
+		shopify_store = dn.get(STORE_LINK_FIELD)
+		
+		if shopify_order_id and shopify_store:
+			update_shopify_with_tracking_direct(
+				shopify_order_id=shopify_order_id,
+				shopify_store=shopify_store,
+				tracking_number=tracking_number,
+				carrier=carrier_code
+			)
 		
 		frappe.db.commit()
 		
@@ -341,71 +353,81 @@ def handle_shipment_shipped(webhook_data):
 		raise
 
 
-def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
-	"""Update Shopify order with tracking information.
+def update_shopify_with_tracking_direct(shopify_order_id, shopify_store, tracking_number, carrier):
+	"""Update Shopify order with tracking information (direct parameters).
 	
 	Args:
-		delivery_note: Delivery Note document
-		tracking_number: Tracking number from ShipStation
-		carrier_code: Carrier code from ShipStation
+		shopify_order_id: Shopify order ID
+		shopify_store: Shopify Store name
+		tracking_number: Tracking number
+		carrier: Carrier code/name
+	
+	Returns:
+		bool: True if successful, False otherwise
 	"""
 	try:
 		frappe.log_error(
-			message=f"update_shopify_with_tracking called for DN {delivery_note.name}, Tracking: {tracking_number}, Carrier: {carrier_code}",
-			title="Shopify Update - Start"
+			message=f"Updating Shopify order {shopify_order_id} in store {shopify_store} with tracking {tracking_number}",
+			title="Shopify Update - Direct Call"
 		)
-		
-		# Get Shopify order ID from Delivery Note
-		shopify_order_id = delivery_note.get("shopify_order_id")
-		store_name = delivery_note.get(STORE_LINK_FIELD)
-		
-		frappe.log_error(
-			message=f"Shopify Order ID: {shopify_order_id}, Store: {store_name}",
-			title="Shopify Update - Order Info"
-		)
-		
-		if not shopify_order_id or not store_name:
-			frappe.log_error(
-				message=f"Missing Shopify order ID or store name on DN {delivery_note.name}",
-				title="Shopify Tracking Update - Missing Data"
-			)
-			return
 		
 		# Get store settings
-		setting = frappe.get_doc("Shopify Store", store_name)
+		setting = frappe.get_doc("Shopify Store", shopify_store)
 		
-		frappe.log_error(
-			message=f"Got store settings for {store_name}",
-			title="Shopify Update - Store Settings"
-		)
-		
-		# Map ShipStation carrier codes to Shopify carrier names
+		# Map carrier codes to Shopify carrier names
 		carrier_mapping = {
 			"ups": "UPS",
 			"usps": "USPS",
 			"usps_ground_advantage": "USPS",
 			"fedex": "FedEx",
 			"dhl": "DHL",
+			"dhl_express": "DHL Express",
 			"ups_ground_saver": "UPS"
 		}
 		
-		shopify_carrier = carrier_mapping.get(carrier_code.lower() if carrier_code else "", carrier_code or "Other")
+		shopify_carrier = carrier_mapping.get(carrier.lower() if carrier else "", carrier or "Other")
 		
+		# Update Shopify via fulfillment API
+		result = create_shopify_fulfillment_v2(
+			setting=setting,
+			order_id=shopify_order_id,
+			tracking_number=tracking_number,
+			carrier=shopify_carrier
+		)
+		
+		return result
+		
+	except Exception as e:
 		frappe.log_error(
-			message=f"Mapped carrier '{carrier_code}' to Shopify carrier '{shopify_carrier}'",
-			title="Shopify Update - Carrier Mapping"
+			message=f"Error in update_shopify_with_tracking_direct: {str(e)}\n{frappe.get_traceback()}",
+			title="Shopify Update Direct - Error"
+		)
+		return False
+
+
+def create_shopify_fulfillment_v2(setting, order_id, tracking_number, carrier):
+	"""Create Shopify fulfillment using 2025-01 API format.
+	
+	Args:
+		setting: Shopify Store document
+		order_id: Shopify order ID
+		tracking_number: Tracking number
+		carrier: Carrier name for Shopify
+		
+	Returns:
+		bool: True if successful, False otherwise
+	"""
+	try:
+		frappe.log_error(
+			message=f"Creating Shopify fulfillment for order {order_id} in store {setting.name}",
+			title="Shopify Fulfillment - Start"
 		)
 		
 		# Create fulfillment in Shopify
 		from ecommerce_integrations_multistore.shopify.connection import temp_shopify_session
 		
-		frappe.log_error(
-			message=f"About to create Shopify session and fulfillment for order {shopify_order_id}",
-			title="Shopify Update - Before Session"
-		)
-		
 		@temp_shopify_session
-		def create_shopify_fulfillment(store_name=None):
+		def create_fulfillment(store_name=None):
 			try:
 				frappe.log_error(
 					message=f"Inside Shopify session, about to import shopify module",
@@ -415,12 +437,12 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 				import shopify
 				
 				frappe.log_error(
-					message=f"Shopify module imported, finding order {shopify_order_id}",
+					message=f"Shopify module imported, finding order {order_id}",
 					title="Shopify Update - Finding Order"
 				)
 				
 				# Get the Shopify order
-				order = shopify.Order.find(shopify_order_id)
+				order = shopify.Order.find(order_id)
 				
 				frappe.log_error(
 					message=f"Order found: {order.order_number if order else 'None'}",
@@ -575,10 +597,10 @@ def update_shopify_with_tracking(delivery_note, tracking_number, carrier_code):
 		
 		# Execute with Shopify session (must pass store_name as kwarg)
 		frappe.log_error(
-			message=f"Calling create_shopify_fulfillment with store_name={store_name}",
+			message=f"Calling create_fulfillment with store_name={setting.name}",
 			title="Shopify Update - Calling Function"
 		)
-		create_shopify_fulfillment(store_name=store_name)
+		return create_fulfillment(store_name=setting.name)
 		
 	except Exception as e:
 		frappe.log_error(
