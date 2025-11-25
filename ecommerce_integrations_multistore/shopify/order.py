@@ -1874,16 +1874,45 @@ def _get_channel_financials(shopify_order: dict, setting) -> tuple[str | None, s
 	"""
 	source_name = shopify_order.get("source_name", "").lower().strip()
 	
+	frappe.log_error(
+		message=f"Sales channel from Shopify: '{shopify_order.get('source_name')}' (raw), '{source_name}' (processed)",
+		title="Sales Channel Debug - Source"
+	)
+	
 	if not source_name or not hasattr(setting, "sales_channel_mapping"):
 		# No source or no mapping table - use defaults
+		frappe.log_error(
+			message=f"No source_name ('{source_name}') or no mapping table. Using defaults.",
+			title="Sales Channel Debug - No Mapping"
+		)
 		return None, None
+	
+	# Log all configured mappings
+	configured_channels = [f"'{m.sales_channel_name}' → {m.cost_center}" for m in setting.sales_channel_mapping]
+	frappe.log_error(
+		message=f"Configured mappings:\n" + "\n".join(configured_channels),
+		title="Sales Channel Debug - Mappings"
+	)
 	
 	# Look up in sales channel mapping table
 	for mapping in setting.sales_channel_mapping:
-		if mapping.sales_channel_name.lower().strip() == source_name:
+		mapped_name = mapping.sales_channel_name.lower().strip()
+		frappe.log_error(
+			message=f"Comparing: '{source_name}' == '{mapped_name}' ? {source_name == mapped_name}",
+			title="Sales Channel Debug - Comparison"
+		)
+		if mapped_name == source_name:
+			frappe.log_error(
+				message=f"MATCH FOUND! Using cost center: {mapping.cost_center}, bank: {mapping.cash_bank_account}",
+				title="Sales Channel Debug - Match"
+			)
 			return mapping.cost_center, mapping.cash_bank_account
 	
 	# No mapping found - use defaults
+	frappe.log_error(
+		message=f"No mapping found for source_name '{source_name}'. Using defaults.",
+		title="Sales Channel Debug - No Match"
+	)
 	return None, None
 
 
