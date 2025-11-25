@@ -344,6 +344,14 @@ def create_payment_entry_for_invoice(invoice, setting):
 			)
 			return
 		
+		# Skip payment entry for $0 invoices (free products, 100% discount, etc.)
+		if invoice.grand_total == 0:
+			frappe.log_error(
+				message=f"Invoice {invoice.name} has $0 grand total. Skipping payment entry creation.",
+				title="Payment Entry Skipped - Zero Amount"
+			)
+			return
+		
 		# Create payment entry
 		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 		
