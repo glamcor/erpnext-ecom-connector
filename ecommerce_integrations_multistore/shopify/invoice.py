@@ -7,6 +7,7 @@ from frappe.utils import cint, cstr, getdate, nowdate
 from ecommerce_integrations_multistore.shopify.constants import (
 	ORDER_ID_FIELD,
 	ORDER_NUMBER_FIELD,
+	ORDER_STATUS_FIELD,
 	SETTING_DOCTYPE,
 	STORE_DOCTYPE,
 	STORE_LINK_FIELD,
@@ -14,7 +15,7 @@ from ecommerce_integrations_multistore.shopify.constants import (
 from ecommerce_integrations_multistore.shopify.utils import create_shopify_log
 
 
-def prepare_sales_invoice(payload, request_id=None, store_name=None):
+def prepare_sales_invoice(payload, request_id=None, store_name=None, retry_count=0):
 	"""Update payment status on existing Sales Invoice.
 	
 	Since we now create Sales Invoice on orders/create webhook,
@@ -24,40 +25,85 @@ def prepare_sales_invoice(payload, request_id=None, store_name=None):
 	    payload: Shopify order data
 	    request_id: Integration log ID
 	    store_name: Shopify Store name (multi-store support)
+	    retry_count: Number of retries for concurrent modification handling
 	"""
+	import time
+	
+	MAX_RETRIES = 5
 	order = payload
+	new_status = order.get("financial_status")
 
 	frappe.set_user("Administrator")
 	frappe.flags.request_id = request_id
 
 	try:
-		# Look for existing Sales Invoice
+		# Look for existing Sales Invoice - include current status for idempotency check
 		sales_invoice = frappe.db.get_value(
 			"Sales Invoice", 
 			{ORDER_ID_FIELD: cstr(order["id"])}, 
-			["name", "docstatus"],
+			["name", "docstatus", ORDER_STATUS_FIELD],
 			as_dict=True
 		)
 		
 		if sales_invoice:
+			current_status = sales_invoice.get(ORDER_STATUS_FIELD)
+			
+			# FIX 2: Idempotency check - skip if already at target status
+			if current_status == new_status:
+				create_shopify_log(
+					status="Success", 
+					message=f"Payment status already '{new_status}', skipping update",
+					store_name=store_name
+				)
+				return
+			
 			# Update payment status
 			si = frappe.get_doc("Sales Invoice", sales_invoice.name)
 			
-			# Update financial status
-			if ORDER_NUMBER_FIELD in si.meta.fields:
+			# FIX 1: Actually update the shopify_order_status field
+			si.db_set(ORDER_STATUS_FIELD, new_status)
+			
+			# Also update order number if needed
+			if ORDER_NUMBER_FIELD in [f.fieldname for f in si.meta.fields]:
 				si.db_set(ORDER_NUMBER_FIELD, order.get("name"))
 			
 			# Add comment about payment received
 			si.add_comment(
 				comment_type="Info",
-				text=f"Payment received via Shopify. Financial status: {order.get('financial_status')}"
+				text=f"Payment received via Shopify. Financial status: {new_status}"
 			)
 			
-			create_shopify_log(status="Success", message="Payment status updated", store_name=store_name)
+			create_shopify_log(
+				status="Success", 
+				message=f"Payment status updated: {current_status} → {new_status}",
+				store_name=store_name
+			)
 		else:
 			create_shopify_log(
 				status="Invalid",
 				message="Sales Invoice not found for updating payment status.",
+				store_name=store_name
+			)
+	
+	# FIX 3: Better retry logic for concurrent modifications
+	except frappe.TimestampMismatchError:
+		if retry_count < MAX_RETRIES:
+			frappe.log_error(
+				message=f"orders/paid: Invoice modified by another process, retrying... (attempt {retry_count + 1}/{MAX_RETRIES})",
+				title="Concurrent Modification - Retrying"
+			)
+			# Exponential backoff: 0.5s, 1s, 1.5s, 2s, 2.5s
+			time.sleep(0.5 * (retry_count + 1))
+			return prepare_sales_invoice(payload, request_id, store_name, retry_count + 1)
+		else:
+			frappe.log_error(
+				message=f"orders/paid: Failed to update invoice after {MAX_RETRIES} retries due to concurrent modifications",
+				title="Concurrent Modification - Failed"
+			)
+			create_shopify_log(
+				status="Error", 
+				exception=f"TimestampMismatchError after {MAX_RETRIES} retries",
+				rollback=True, 
 				store_name=store_name
 			)
 	except Exception as e:
