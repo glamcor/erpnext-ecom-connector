@@ -375,17 +375,32 @@ def create_payment_entry_for_invoice(invoice, setting):
 		if existing_pe:
 			return
 		
-		# Get payment account from sales channel mapping
-		from ecommerce_integrations_multistore.shopify.order import _get_channel_financials
-		cost_center, cash_bank_account = _get_channel_financials(shopify_order, setting)
+		# Get cost center from sales channel (for P&L attribution)
+		from ecommerce_integrations_multistore.shopify.order import (
+			_get_channel_cost_center,
+			_get_payment_gateway_bank_account,
+		)
+		cost_center = _get_channel_cost_center(shopify_order, setting)
 		
-		# If no channel-specific account, use company default
+		# Get bank account from payment gateway mapping (for treasury/cash flow)
+		cash_bank_account = _get_payment_gateway_bank_account(shopify_order, setting)
+		
+		# Determine gateway for logging
+		gateway_names = shopify_order.get("payment_gateway_names", [])
+		gateway = gateway_names[0] if gateway_names else shopify_order.get("gateway", "")
+		
+		# If no gateway-specific account, fall back to store default
 		if not cash_bank_account:
 			cash_bank_account = setting.cash_bank_account
+			if gateway:
+				frappe.log_error(
+					message=f"No payment gateway mapping for '{gateway}'. Using store default: {cash_bank_account}",
+					title="Payment Gateway Mapping - Using Default"
+				)
 		
 		if not cash_bank_account:
 			frappe.log_error(
-				message=f"No cash/bank account configured for payment entry creation",
+				message=f"No cash/bank account configured for payment entry creation. Gateway: {gateway}",
 				title="Payment Entry Configuration Missing"
 			)
 			return
@@ -409,10 +424,9 @@ def create_payment_entry_for_invoice(invoice, setting):
 		if cost_center:
 			pe.cost_center = cost_center
 		
-		# Add payment gateway info if available
-		gateway = shopify_order.get("gateway", "").replace("_", " ").title()
-		if gateway:
-			pe.remarks = f"Payment via {gateway} - Shopify Order {shopify_order.get('name')}"
+		# Add payment gateway info to remarks
+		gateway_display = gateway.replace("_", " ").title() if gateway else "Unknown"
+		pe.remarks = f"Payment via {gateway_display} - Shopify Order {shopify_order.get('name')}"
 		
 		pe.save(ignore_permissions=True)
 		pe.submit()

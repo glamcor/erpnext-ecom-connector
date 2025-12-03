@@ -1865,6 +1865,13 @@ def _get_income_account(item_code: str, company: str) -> str:
 def _get_channel_financials(shopify_order: dict, setting) -> tuple[str | None, str | None]:
 	"""Get cost center and bank account based on order's sales channel.
 	
+	DEPRECATED: Bank account is now determined by payment gateway, not sales channel.
+	This function still returns bank account for backward compatibility but it will
+	be the channel's bank account, not the payment gateway's.
+	
+	Use _get_channel_cost_center() for cost center only.
+	Use _get_payment_gateway_bank_account() for bank account based on payment gateway.
+	
 	Args:
 	    shopify_order: Shopify order data dict
 	    setting: Shopify Store or Setting doc
@@ -1872,48 +1879,109 @@ def _get_channel_financials(shopify_order: dict, setting) -> tuple[str | None, s
 	Returns:
 	    tuple: (cost_center, cash_bank_account) or (None, None) if using defaults
 	"""
+	cost_center = _get_channel_cost_center(shopify_order, setting)
+	# For backward compatibility, still return channel's bank account
+	# New code should use _get_payment_gateway_bank_account() instead
+	bank_account = _get_channel_bank_account_legacy(shopify_order, setting)
+	return cost_center, bank_account
+
+
+def _get_channel_cost_center(shopify_order: dict, setting) -> str | None:
+	"""Get cost center based on order's sales channel (source_name).
+	
+	This is for P&L attribution - which marketing channel generated this sale.
+	
+	Args:
+	    shopify_order: Shopify order data dict
+	    setting: Shopify Store or Setting doc
+	
+	Returns:
+	    Cost center name or None to use default
+	"""
 	source_name = shopify_order.get("source_name", "").lower().strip()
 	
-	frappe.log_error(
-		message=f"Sales channel from Shopify: '{shopify_order.get('source_name')}' (raw), '{source_name}' (processed)",
-		title="Sales Channel Debug - Source"
-	)
-	
 	if not source_name or not hasattr(setting, "sales_channel_mapping"):
-		# No source or no mapping table - use defaults
-		frappe.log_error(
-			message=f"No source_name ('{source_name}') or no mapping table. Using defaults.",
-			title="Sales Channel Debug - No Mapping"
-		)
-		return None, None
-	
-	# Log all configured mappings
-	configured_channels = [f"'{m.sales_channel_name}' → {m.cost_center}" for m in setting.sales_channel_mapping]
-	frappe.log_error(
-		message=f"Configured mappings:\n" + "\n".join(configured_channels),
-		title="Sales Channel Debug - Mappings"
-	)
+		return None
 	
 	# Look up in sales channel mapping table
 	for mapping in setting.sales_channel_mapping:
 		mapped_name = mapping.sales_channel_name.lower().strip()
-		frappe.log_error(
-			message=f"Comparing: '{source_name}' == '{mapped_name}' ? {source_name == mapped_name}",
-			title="Sales Channel Debug - Comparison"
-		)
 		if mapped_name == source_name:
-			frappe.log_error(
-				message=f"MATCH FOUND! Using cost center: {mapping.cost_center}, bank: {mapping.cash_bank_account}",
-				title="Sales Channel Debug - Match"
-			)
-			return mapping.cost_center, mapping.cash_bank_account
+			return mapping.cost_center
 	
-	# No mapping found - use defaults
-	frappe.log_error(
-		message=f"No mapping found for source_name '{source_name}'. Using defaults.",
-		title="Sales Channel Debug - No Match"
-	)
-	return None, None
+	return None
+
+
+def _get_channel_bank_account_legacy(shopify_order: dict, setting) -> str | None:
+	"""Legacy: Get bank account from sales channel mapping.
+	
+	DEPRECATED: Use _get_payment_gateway_bank_account() instead.
+	This is kept for backward compatibility with existing Sales Channel Mapping entries.
+	"""
+	source_name = shopify_order.get("source_name", "").lower().strip()
+	
+	if not source_name or not hasattr(setting, "sales_channel_mapping"):
+		return None
+	
+	for mapping in setting.sales_channel_mapping:
+		mapped_name = mapping.sales_channel_name.lower().strip()
+		if mapped_name == source_name:
+			return mapping.cash_bank_account
+	
+	return None
+
+
+def _get_payment_gateway_bank_account(shopify_order: dict, setting) -> str | None:
+	"""Get bank account based on payment gateway used for the order.
+	
+	This is for treasury/cash flow - which bank account will receive the funds.
+	
+	Shopify provides payment gateway info in several fields:
+	- payment_gateway_names: Array of gateway names used
+	- gateway: Primary gateway (may be empty)
+	- transactions: Array with gateway info per transaction
+	
+	Args:
+	    shopify_order: Shopify order data dict
+	    setting: Shopify Store or Setting doc
+	
+	Returns:
+	    Bank account name or None to use default
+	"""
+	if not hasattr(setting, "payment_gateway_mapping") or not setting.payment_gateway_mapping:
+		return None
+	
+	# Try to get gateway from various Shopify fields
+	gateway = None
+	
+	# Method 1: payment_gateway_names array (most reliable)
+	gateway_names = shopify_order.get("payment_gateway_names", [])
+	if gateway_names and len(gateway_names) > 0:
+		gateway = gateway_names[0].lower().strip()
+	
+	# Method 2: gateway field
+	if not gateway:
+		gateway = (shopify_order.get("gateway") or "").lower().strip()
+	
+	# Method 3: Check transactions array
+	if not gateway:
+		transactions = shopify_order.get("transactions", [])
+		for txn in transactions:
+			if txn.get("gateway"):
+				gateway = txn.get("gateway").lower().strip()
+				break
+	
+	if not gateway:
+		return None
+	
+	# Look up in payment gateway mapping table
+	for mapping in setting.payment_gateway_mapping:
+		mapped_gateway = mapping.gateway_name.lower().strip()
+		if mapped_gateway == gateway:
+			return mapping.bank_account
+	
+	# No mapping found
+	return None
 
 
 def _sync_order_tags(document, shopify_tags: str) -> None:

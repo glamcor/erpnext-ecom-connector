@@ -27,6 +27,8 @@
   "cost_center",
   "section_break_sales_channel",
   "sales_channel_mapping",
+  "section_break_payment_gateway",
+  "payment_gateway_mapping",
   "section_break_25",
   "sales_order_series",
   "delivery_note_series",
@@ -214,11 +216,24 @@
    "label": "Sales Channel Mapping"
   },
   {
-   "description": "Map sales channels (TikTok, Instagram, etc.) to specific Cost Centers and Bank Accounts. Orders will use these mappings based on source_name from Shopify. Falls back to default Cost Center and Bank Account if no mapping found.",
+   "description": "Map sales channels (TikTok, Instagram, etc.) to specific Cost Centers. Orders will use these mappings based on source_name from Shopify for P&L attribution.",
    "fieldname": "sales_channel_mapping",
    "fieldtype": "Table",
    "label": "Sales Channel Mapping",
    "options": "Shopify Sales Channel Mapping"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_payment_gateway",
+   "fieldtype": "Section Break",
+   "label": "Payment Gateway Mapping"
+  },
+  {
+   "description": "Map payment gateways (afterpay, klarna, shopify_payments, paypal, etc.) to specific Bank Accounts. Payment entries will use these mappings based on the gateway used for the order.",
+   "fieldname": "payment_gateway_mapping",
+   "fieldtype": "Table",
+   "label": "Payment Gateway Mapping",
+   "options": "Shopify Payment Gateway Mapping"
   },
   {
    "fieldname": "section_break_25",
