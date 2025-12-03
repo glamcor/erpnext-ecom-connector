@@ -378,29 +378,48 @@ def create_payment_entry_for_invoice(invoice, setting):
 		# Get cost center from sales channel (for P&L attribution)
 		from ecommerce_integrations_multistore.shopify.order import (
 			_get_channel_cost_center,
+			_get_channel_bank_account_legacy,
 			_get_payment_gateway_bank_account,
 		)
 		cost_center = _get_channel_cost_center(shopify_order, setting)
 		
-		# Get bank account from payment gateway mapping (for treasury/cash flow)
-		cash_bank_account = _get_payment_gateway_bank_account(shopify_order, setting)
-		
-		# Determine gateway for logging
+		# Determine gateway and source for logging
 		gateway_names = shopify_order.get("payment_gateway_names", [])
 		gateway = gateway_names[0] if gateway_names else shopify_order.get("gateway", "")
+		source_name = shopify_order.get("source_name", "")
 		
-		# If no gateway-specific account, fall back to store default
+		# 3-tier priority for bank account selection:
+		# 1. Payment Gateway Mapping (most specific - e.g., afterpay, klarna)
+		# 2. Sales Channel Mapping (channel-specific - e.g., tiktok)
+		# 3. Store Default (fallback)
+		
+		cash_bank_account = None
+		account_source = None
+		
+		# Tier 1: Payment Gateway Mapping
+		cash_bank_account = _get_payment_gateway_bank_account(shopify_order, setting)
+		if cash_bank_account:
+			account_source = f"Payment Gateway '{gateway}'"
+		
+		# Tier 2: Sales Channel Mapping
+		if not cash_bank_account:
+			cash_bank_account = _get_channel_bank_account_legacy(shopify_order, setting)
+			if cash_bank_account:
+				account_source = f"Sales Channel '{source_name}'"
+		
+		# Tier 3: Store Default
 		if not cash_bank_account:
 			cash_bank_account = setting.cash_bank_account
-			if gateway:
-				frappe.log_error(
-					message=f"No payment gateway mapping for '{gateway}'. Using store default: {cash_bank_account}",
-					title="Payment Gateway Mapping - Using Default"
-				)
+			if cash_bank_account:
+				account_source = "Store Default"
 		
 		if not cash_bank_account:
 			frappe.log_error(
-				message=f"No cash/bank account configured for payment entry creation. Gateway: {gateway}",
+				message=(
+					f"No cash/bank account configured for payment entry creation.\n"
+					f"Gateway: {gateway}, Source: {source_name}\n"
+					f"Checked: Payment Gateway Mapping, Sales Channel Mapping, Store Default"
+				),
 				title="Payment Entry Configuration Missing"
 			)
 			return
@@ -424,21 +443,25 @@ def create_payment_entry_for_invoice(invoice, setting):
 		if cost_center:
 			pe.cost_center = cost_center
 		
-		# Add payment gateway info to remarks
+		# Add payment gateway info to remarks - include account source for audit trail
 		gateway_display = gateway.replace("_", " ").title() if gateway else "Unknown"
-		pe.remarks = f"Payment via {gateway_display} - Shopify Order {shopify_order.get('name')}"
+		pe.remarks = f"Payment via {gateway_display} - Shopify Order {shopify_order.get('name')} - Account from {account_source}"
 		
 		pe.save(ignore_permissions=True)
 		pe.submit()
 		
-		# Add comment to invoice
+		# Add comment to invoice with account source
 		invoice.add_comment(
 			comment_type="Info",
-			text=f"Payment Entry {pe.name} created automatically"
+			text=f"Payment Entry {pe.name} created automatically (Bank: {cash_bank_account} via {account_source})"
 		)
 		
 		frappe.log_error(
-			message=f"Auto-created Payment Entry {pe.name} for Sales Invoice {invoice.name}",
+			message=(
+				f"Auto-created Payment Entry {pe.name} for Sales Invoice {invoice.name}\n"
+				f"Bank Account: {cash_bank_account} (from {account_source})\n"
+				f"Gateway: {gateway}, Source: {source_name}"
+			),
 			title="Shopify Auto Payment Entry"
 		)
 		
