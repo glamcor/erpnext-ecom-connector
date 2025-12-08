@@ -512,7 +512,7 @@ def create_sales_invoice(shopify_order, setting, so, store_name=None):
 		sales_invoice.insert(ignore_mandatory=True)
 		sales_invoice.submit()
 		if sales_invoice.grand_total > 0:
-			make_payament_entry_against_sales_invoice(sales_invoice, setting, posting_date)
+			make_payament_entry_against_sales_invoice(sales_invoice, setting, posting_date, shopify_order)
 
 		if shopify_order.get("note"):
 			sales_invoice.add_comment(text=f"Order Note: {shopify_order.get('note')}")
@@ -523,13 +523,67 @@ def set_cost_center(items, cost_center):
 		item.cost_center = cost_center
 
 
-def make_payament_entry_against_sales_invoice(doc, setting, posting_date=None):
+def make_payament_entry_against_sales_invoice(doc, setting, posting_date=None, shopify_order=None):
+	"""Create payment entry for a sales invoice using 3-tier bank account priority.
+	
+	Args:
+	    doc: Sales Invoice document
+	    setting: Shopify Store or Setting doc
+	    posting_date: Optional posting date
+	    shopify_order: Optional Shopify order data for gateway/channel lookup
+	"""
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+	from ecommerce_integrations_multistore.shopify.order import (
+		_get_channel_cost_center,
+		_get_channel_bank_account_legacy,
+		_get_payment_gateway_bank_account,
+	)
+	
+	# 3-tier priority for bank account selection (same as create_payment_entry_for_invoice)
+	cash_bank_account = None
+	account_source = None
+	
+	if shopify_order:
+		gateway_names = shopify_order.get("payment_gateway_names", [])
+		gateway = gateway_names[0] if gateway_names else shopify_order.get("gateway", "")
+		source_name = shopify_order.get("source_name", "")
+		
+		# Tier 1: Payment Gateway Mapping
+		cash_bank_account = _get_payment_gateway_bank_account(shopify_order, setting)
+		if cash_bank_account:
+			account_source = f"Payment Gateway '{gateway}'"
+		
+		# Tier 2: Sales Channel Mapping
+		if not cash_bank_account:
+			cash_bank_account = _get_channel_bank_account_legacy(shopify_order, setting)
+			if cash_bank_account:
+				account_source = f"Sales Channel '{source_name}'"
+	
+	# Tier 3: Store Default
+	if not cash_bank_account:
+		cash_bank_account = setting.cash_bank_account
+		account_source = "Store Default"
+	
+	if not cash_bank_account:
+		frappe.log_error(
+			message=f"No cash/bank account configured for payment entry creation for invoice {doc.name}",
+			title="Payment Entry Configuration Missing"
+		)
+		return
 
-	payment_entry = get_payment_entry(doc.doctype, doc.name, bank_account=setting.cash_bank_account)
+	payment_entry = get_payment_entry(doc.doctype, doc.name, bank_account=cash_bank_account)
 	payment_entry.flags.ignore_mandatory = True
 	payment_entry.reference_no = doc.name
 	payment_entry.posting_date = posting_date or nowdate()
 	payment_entry.reference_date = posting_date or nowdate()
+	
+	# Add remarks showing which tier was used
+	payment_entry.remarks = f"Auto-created from Shopify - Account from {account_source}"
+	
 	payment_entry.insert(ignore_permissions=True)
 	payment_entry.submit()
+	
+	frappe.log_error(
+		message=f"Payment Entry {payment_entry.name} created for {doc.name} using {account_source}",
+		title="Shopify Payment Entry Created"
+	)

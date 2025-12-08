@@ -243,29 +243,14 @@ def update_draft_invoice(invoice_name, shopify_order, store_name, retry_count=0)
 		if not items:
 			frappe.throw("No items found in updated order")
 		
-		# Get channel-specific cost center
-		cost_center = _get_channel_cost_center(shopify_order, setting)
-		
-		# Re-process taxes with channel cost center
-		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name, cost_center=cost_center)
-		
-		# Get accounting class from store settings
-		accounting_class = setting.accounting_class if hasattr(setting, 'accounting_class') else None
+		# Re-process taxes
+		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
 		
 		# Add items and taxes using append method to create proper child documents
 		for item in items:
-			# Apply channel-specific cost center to items
-			if cost_center:
-				item["cost_center"] = cost_center
-			# Apply accounting class to items
-			if accounting_class:
-				item["accounting_class"] = accounting_class
 			invoice.append("items", item)
 		
 		for tax in taxes:
-			# Apply accounting class to taxes
-			if accounting_class:
-				tax["accounting_class"] = accounting_class
 			invoice.append("taxes", tax)
 		
 		# Update financial status
@@ -670,12 +655,12 @@ def create_sales_order(shopify_order, setting, company=None):
 			# Raise exception instead of returning empty string
 			raise Exception(message)
 
-		# Get cost center and bank account based on sales channel (before taxes, so we can pass cost_center)
+		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
+		
+		# Get cost center and bank account based on sales channel
 		cost_center, cash_bank_account = _get_channel_financials(
 			shopify_order, setting
 		)
-		
-		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name, cost_center=cost_center)
 		
 		# Get billing and shipping addresses
 		customer_address = None
@@ -751,20 +736,10 @@ def create_sales_order(shopify_order, setting, company=None):
 		so.flags.ignore_validate = True
 		so.flags.ignore_validate_update_after_submit = True
 		
-		# Get accounting class from store settings
-		accounting_class = setting.accounting_class if hasattr(setting, 'accounting_class') else None
-		
-		# Apply channel-specific cost center and accounting class to all line items
-		for item in so.items:
-			if cost_center:
+		# Apply channel-specific cost center to all line items
+		if cost_center:
+			for item in so.items:
 				item.cost_center = cost_center
-			if accounting_class:
-				item.accounting_class = accounting_class
-		
-		# Apply accounting class to all tax/shipping lines
-		for tax in so.taxes:
-			if accounting_class:
-				tax.accounting_class = accounting_class
 		
 		# Note: Bank account from channel mapping is used for financial reporting/reconciliation
 		# It's tracked at the mapping level for identifying which account money flows to
@@ -887,12 +862,12 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			# Raise exception instead of returning empty string
 			raise Exception(message)
 
-		# Get cost center and bank account based on sales channel (before taxes, so we can pass cost_center)
+		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name)
+		
+		# Get cost center and bank account based on sales channel
 		cost_center, cash_bank_account = _get_channel_financials(
 			shopify_order, setting
 		)
-		
-		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name, cost_center=cost_center)
 		
 		# Get billing and shipping addresses
 		billing_address = None
@@ -1018,20 +993,10 @@ def create_sales_invoice(shopify_order, setting, company=None):
 		si.flags.ignore_validate = True
 		si.flags.ignore_validate_update_after_submit = True
 		
-		# Get accounting class from store settings
-		accounting_class = setting.accounting_class if hasattr(setting, 'accounting_class') else None
-		
-		# Apply channel-specific cost center and accounting class to all line items
-		for item in si.items:
-			if cost_center:
+		# Apply channel-specific cost center to all line items
+		if cost_center:
+			for item in si.items:
 				item.cost_center = cost_center
-			if accounting_class:
-				item.accounting_class = accounting_class
-		
-		# Apply accounting class to all tax/shipping lines
-		for tax in si.taxes:
-			if accounting_class:
-				tax.accounting_class = accounting_class
 		
 		# Note: Bank account from channel mapping is used for financial reporting/reconciliation
 		# It's tracked at the mapping level for identifying which account money flows to
@@ -1388,7 +1353,7 @@ def _get_total_discount(line_item) -> float:
 	return sum(flt(discount.get("amount")) for discount in discount_allocations)
 
 
-def get_order_taxes(shopify_order, setting, items, store_name=None, cost_center=None):
+def get_order_taxes(shopify_order, setting, items, store_name=None):
 	"""Get tax lines for Sales Order.
 	
 	Args:
@@ -1396,14 +1361,10 @@ def get_order_taxes(shopify_order, setting, items, store_name=None, cost_center=
 	    setting: Store or Setting doc
 	    items: Sales Order items
 	    store_name: Store name for multi-store tax account lookup
-	    cost_center: Channel-specific cost center (overrides setting.cost_center if provided)
 	"""
 	taxes = []
 	line_items = shopify_order.get("line_items")
 	taxes_included = shopify_order.get("taxes_included", False)
-	
-	# Use channel-specific cost center if provided, otherwise fall back to store default
-	effective_cost_center = cost_center or setting.cost_center
 
 	for line_item in line_items:
 		item_code = get_item_code(line_item, store_name=store_name)
@@ -1418,7 +1379,7 @@ def get_order_taxes(shopify_order, setting, items, store_name=None, cost_center=
 					),
 					"tax_amount": tax.get("price"),
 					"included_in_print_rate": 1 if taxes_included else 0,
-					"cost_center": effective_cost_center,
+					"cost_center": setting.cost_center,
 					"item_wise_tax_detail": {item_code: [flt(tax.get("rate")) * 100, flt(tax.get("price"))]},
 					"dont_recompute_tax": 1,
 				}
@@ -1431,7 +1392,6 @@ def get_order_taxes(shopify_order, setting, items, store_name=None, cost_center=
 		items,
 		taxes_inclusive=shopify_order.get("taxes_included"),
 		store_name=store_name,
-		cost_center=effective_cost_center,
 	)
 
 	if cint(setting.consolidate_taxes):
@@ -1532,7 +1492,7 @@ def get_tax_account_description(tax, setting=None):
 	return tax_description
 
 
-def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxes_inclusive=False, store_name=None, cost_center=None):
+def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxes_inclusive=False, store_name=None):
 	"""Shipping lines represents the shipping details,
 	each such shipping detail consists of a list of tax_lines
 	
@@ -1543,11 +1503,7 @@ def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxe
 	    items: Sales Order items
 	    taxes_inclusive: Whether taxes are included
 	    store_name: Store name for multi-store support
-	    cost_center: Channel-specific cost center (overrides setting.cost_center if provided)
 	"""
-	# Use channel-specific cost center if provided, otherwise fall back to store default
-	effective_cost_center = cost_center or setting.cost_center
-	
 	shipping_as_item = cint(setting.add_shipping_as_item) and setting.shipping_item
 	for shipping_charge in shipping_lines:
 		if shipping_charge.get("price"):
@@ -1580,7 +1536,7 @@ def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxe
 						"description": get_tax_account_description(shipping_charge, setting=setting)
 						or shipping_charge["title"],
 						"tax_amount": shipping_charge_amount,
-						"cost_center": effective_cost_center,
+						"cost_center": setting.cost_center,
 					}
 				)
 
@@ -1595,7 +1551,7 @@ def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxe
 					),
 					"tax_amount": tax["price"],
 					"included_in_print_rate": 1 if taxes_inclusive else 0,
-					"cost_center": effective_cost_center,
+					"cost_center": setting.cost_center,
 					"item_wise_tax_detail": {
 						setting.shipping_item: [flt(tax.get("rate")) * 100, flt(tax.get("price"))]
 					}
