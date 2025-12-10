@@ -25,8 +25,6 @@
   "cash_bank_account",
   "column_break_19",
   "cost_center",
-  "section_break_accounting_dimensions",
-  "accounting_class",
   "section_break_sales_channel",
   "sales_channel_mapping",
   "section_break_payment_gateway",
@@ -210,19 +208,6 @@
    "label": "Default Cost Center",
    "mandatory_depends_on": "eval:doc.enabled",
    "options": "Cost Center"
-  },
-  {
-   "fieldname": "section_break_accounting_dimensions",
-   "fieldtype": "Section Break",
-   "label": "Accounting Dimensions"
-  },
-  {
-   "fieldname": "accounting_class",
-   "fieldtype": "Link",
-   "label": "Default Accounting Class",
-   "options": "Accounting Class",
-   "mandatory_depends_on": "eval:doc.enabled",
-   "description": "Applied to all line items, taxes, and shipping on Sales Invoices from this store. Must be a leaf class (not a group) for the store's company."
   },
   {
    "collapsible": 1,

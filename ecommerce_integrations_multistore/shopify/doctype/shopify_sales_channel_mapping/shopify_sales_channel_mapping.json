@@ -8,7 +8,13 @@
   "sales_channel_name",
   "column_break_2",
   "cost_center",
-  "cash_bank_account"
+  "cash_bank_account",
+  "section_break_tax",
+  "tax_account",
+  "tax_accounting_class",
+  "section_break_shipping",
+  "shipping_account",
+  "shipping_accounting_class"
  ],
  "fields": [
   {
@@ -16,7 +22,8 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Sales Channel Name",
-   "reqd": 1
+   "reqd": 1,
+   "description": "Must match Shopify source_name exactly (e.g., 'web', 'tiktok', 'duoplane_xxx')"
   },
   {
    "fieldname": "column_break_2",
@@ -28,7 +35,8 @@
    "in_list_view": 1,
    "label": "Cost Center",
    "options": "Cost Center",
-   "reqd": 1
+   "reqd": 1,
+   "description": "Applied to all line items, taxes, and shipping for this channel"
   },
   {
    "fieldname": "cash_bank_account",
@@ -36,13 +44,56 @@
    "in_list_view": 1,
    "label": "Cash/Bank Account",
    "options": "Account",
-   "reqd": 1
+   "reqd": 1,
+   "description": "Bank account for payment entries (used as Tier 2 in 3-tier priority)"
+  },
+  {
+   "fieldname": "section_break_tax",
+   "fieldtype": "Section Break",
+   "label": "Tax Settings"
+  },
+  {
+   "fieldname": "tax_account",
+   "fieldtype": "Link",
+   "label": "Tax Account",
+   "options": "Account",
+   "reqd": 1,
+   "description": "Account for booking sales tax from this channel"
+  },
+  {
+   "fieldname": "tax_accounting_class",
+   "fieldtype": "Link",
+   "label": "Tax Accounting Class",
+   "options": "Accounting Class",
+   "reqd": 1,
+   "description": "Accounting class applied to all tax lines for this channel"
+  },
+  {
+   "fieldname": "section_break_shipping",
+   "fieldtype": "Section Break",
+   "label": "Shipping Settings"
+  },
+  {
+   "fieldname": "shipping_account",
+   "fieldtype": "Link",
+   "label": "Shipping Account",
+   "options": "Account",
+   "reqd": 1,
+   "description": "Account for booking shipping charges from this channel"
+  },
+  {
+   "fieldname": "shipping_accounting_class",
+   "fieldtype": "Link",
+   "label": "Shipping Accounting Class",
+   "options": "Accounting Class",
+   "reqd": 1,
+   "description": "Accounting class applied to all shipping lines for this channel"
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-11-08 00:00:00.000000",
+ "modified": "2025-12-10 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Shopify",
  "name": "Shopify Sales Channel Mapping",
@@ -52,4 +103,3 @@
  "sort_order": "DESC",
  "states": []
 }
-

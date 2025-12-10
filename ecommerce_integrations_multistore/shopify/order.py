@@ -243,29 +243,22 @@ def update_draft_invoice(invoice_name, shopify_order, store_name, retry_count=0)
 		if not items:
 			frappe.throw("No items found in updated order")
 		
-		# Get channel-specific cost center
-		cost_center = _get_channel_cost_center(shopify_order, setting)
+		# Get all channel-specific settings
+		channel_settings = _get_channel_settings(shopify_order, setting)
+		cost_center = channel_settings.get("cost_center") or setting.cost_center
 		
-		# Re-process taxes with channel cost center
-		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name, cost_center=cost_center)
-		
-		# Get accounting class from store settings
-		accounting_class = setting.accounting_class if hasattr(setting, 'accounting_class') else None
+		# Re-process taxes with channel settings (includes tax/shipping accounts and accounting classes)
+		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name, channel_settings=channel_settings)
 		
 		# Add items and taxes using append method to create proper child documents
 		for item in items:
-			# Apply channel-specific cost center to items
+			# Apply channel-specific cost center to items (accounting_class already set from Item master in get_order_items)
 			if cost_center:
 				item["cost_center"] = cost_center
-			# Apply accounting class to items
-			if accounting_class:
-				item["accounting_class"] = accounting_class
 			invoice.append("items", item)
 		
 		for tax in taxes:
-			# Apply accounting class to taxes
-			if accounting_class:
-				tax["accounting_class"] = accounting_class
+			# Tax accounting classes are already set in get_order_taxes based on channel_settings
 			invoice.append("taxes", tax)
 		
 		# Update financial status
@@ -670,12 +663,11 @@ def create_sales_order(shopify_order, setting, company=None):
 			# Raise exception instead of returning empty string
 			raise Exception(message)
 
-		# Get cost center and bank account based on sales channel (before taxes, so we can pass cost_center)
-		cost_center, cash_bank_account = _get_channel_financials(
-			shopify_order, setting
-		)
+		# Get all channel-specific settings (cost center, bank account, tax/shipping accounts, accounting classes)
+		channel_settings = _get_channel_settings(shopify_order, setting)
+		cost_center = channel_settings.get("cost_center") or setting.cost_center
 		
-		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name, cost_center=cost_center)
+		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name, channel_settings=channel_settings)
 		
 		# Get billing and shipping addresses
 		customer_address = None
@@ -751,22 +743,17 @@ def create_sales_order(shopify_order, setting, company=None):
 		so.flags.ignore_validate = True
 		so.flags.ignore_validate_update_after_submit = True
 		
-		# Get accounting class from store settings
-		accounting_class = setting.accounting_class if hasattr(setting, 'accounting_class') else None
-		
-		# Apply channel-specific cost center and accounting class to all line items
+		# Apply channel-specific cost center to all line items
+		# Note: accounting_class for items comes from Item master (set in get_order_items)
+		# Note: accounting_class for taxes comes from channel_settings (set in get_order_taxes)
 		for item in so.items:
 			if cost_center:
 				item.cost_center = cost_center
-			if accounting_class:
-				item.accounting_class = accounting_class
 		
-		# Apply cost center and accounting class to all tax lines
+		# Apply cost center to all tax lines (accounting_class already set in get_order_taxes)
 		for tax in so.taxes:
 			if cost_center:
 				tax.cost_center = cost_center
-			if accounting_class:
-				tax.accounting_class = accounting_class
 		
 		# Note: Bank account from channel mapping is used for financial reporting/reconciliation
 		# It's tracked at the mapping level for identifying which account money flows to
@@ -889,12 +876,11 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			# Raise exception instead of returning empty string
 			raise Exception(message)
 
-		# Get cost center and bank account based on sales channel (before taxes, so we can pass cost_center)
-		cost_center, cash_bank_account = _get_channel_financials(
-			shopify_order, setting
-		)
+		# Get all channel-specific settings (cost center, bank account, tax/shipping accounts, accounting classes)
+		channel_settings = _get_channel_settings(shopify_order, setting)
+		cost_center = channel_settings.get("cost_center") or setting.cost_center
 		
-		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name, cost_center=cost_center)
+		taxes = get_order_taxes(shopify_order, setting, items, store_name=store_name, channel_settings=channel_settings)
 		
 		# Get billing and shipping addresses
 		billing_address = None
@@ -1020,22 +1006,17 @@ def create_sales_invoice(shopify_order, setting, company=None):
 		si.flags.ignore_validate = True
 		si.flags.ignore_validate_update_after_submit = True
 		
-		# Get accounting class from store settings
-		accounting_class = setting.accounting_class if hasattr(setting, 'accounting_class') else None
-		
-		# Apply channel-specific cost center and accounting class to all line items
+		# Apply channel-specific cost center to all line items
+		# Note: accounting_class for items comes from Item master (set in get_order_items)
+		# Note: accounting_class for taxes comes from channel_settings (set in get_order_taxes)
 		for item in si.items:
 			if cost_center:
 				item.cost_center = cost_center
-			if accounting_class:
-				item.accounting_class = accounting_class
 		
-		# Apply cost center and accounting class to all tax lines
+		# Apply cost center to all tax lines (accounting_class already set in get_order_taxes)
 		for tax in si.taxes:
 			if cost_center:
 				tax.cost_center = cost_center
-			if accounting_class:
-				tax.accounting_class = accounting_class
 		
 		# Note: Bank account from channel mapping is used for financial reporting/reconciliation
 		# It's tracked at the mapping level for identifying which account money flows to
@@ -1341,9 +1322,12 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 		# Get income account from Item, Item Group, or Company
 		income_account = _get_income_account(item_code, setting.company)
 		
-		# Get UOM from item master if not provided
-		item_doc = frappe.get_doc("Item", item_code)
+		# Get UOM and accounting_class from item master
+		item_doc = frappe.get_cached_doc("Item", item_code)
 		uom = shopify_item.get("uom") or item_doc.stock_uom or "Nos"
+		
+		# Get accounting class from item (if the field exists and is set)
+		item_accounting_class = getattr(item_doc, "accounting_class", None)
 		
 		# Build item dict
 		item_dict = {
@@ -1364,6 +1348,10 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 		# Only add income_account if we found one (optional for ignore_validate mode)
 		if income_account:
 			item_dict["income_account"] = income_account
+		
+		# Add accounting class from item master (for product-level class assignment)
+		if item_accounting_class:
+			item_dict["accounting_class"] = item_accounting_class
 		
 		items.append(item_dict)
 
@@ -1392,41 +1380,60 @@ def _get_total_discount(line_item) -> float:
 	return sum(flt(discount.get("amount")) for discount in discount_allocations)
 
 
-def get_order_taxes(shopify_order, setting, items, store_name=None, cost_center=None):
-	"""Get tax lines for Sales Order.
+def get_order_taxes(shopify_order, setting, items, store_name=None, channel_settings=None):
+	"""Get tax lines for Sales Order/Invoice.
 	
 	Args:
 	    shopify_order: Shopify order data
 	    setting: Store or Setting doc
-	    items: Sales Order items
+	    items: Sales Order/Invoice items
 	    store_name: Store name for multi-store tax account lookup
-	    cost_center: Channel-specific cost center (overrides setting.cost_center if provided)
+	    channel_settings: Dict from _get_channel_settings() with channel-specific config
 	"""
 	taxes = []
 	line_items = shopify_order.get("line_items")
 	taxes_included = shopify_order.get("taxes_included", False)
 	
+	# Extract channel settings (or use empty dict)
+	channel = channel_settings or {}
+	
 	# Use channel-specific cost center if provided, otherwise fall back to store default
-	effective_cost_center = cost_center or setting.cost_center
+	effective_cost_center = channel.get("cost_center") or setting.cost_center
+	
+	# Use channel-specific tax account if provided, otherwise use existing mapping logic
+	channel_tax_account = channel.get("tax_account")
+	
+	# Get channel's tax accounting class
+	tax_accounting_class = channel.get("tax_accounting_class")
 
 	for line_item in line_items:
 		item_code = get_item_code(line_item, store_name=store_name)
 		for tax in line_item.get("tax_lines"):
-			taxes.append(
-				{
-					"charge_type": "Actual",
-					"account_head": get_tax_account_head(tax, charge_type="sales_tax", setting=setting),
-					"description": (
-						get_tax_account_description(tax, setting=setting)
-						or f"{tax.get('title')} - {tax.get('rate') * 100.0:.2f}%"
-					),
-					"tax_amount": tax.get("price"),
-					"included_in_print_rate": 1 if taxes_included else 0,
-					"cost_center": effective_cost_center,
-					"item_wise_tax_detail": {item_code: [flt(tax.get("rate")) * 100, flt(tax.get("price"))]},
-					"dont_recompute_tax": 1,
-				}
-			)
+			# Use channel tax account if set, otherwise fall back to store tax mapping
+			if channel_tax_account:
+				tax_account = channel_tax_account
+			else:
+				tax_account = get_tax_account_head(tax, charge_type="sales_tax", setting=setting)
+			
+			tax_line = {
+				"charge_type": "Actual",
+				"account_head": tax_account,
+				"description": (
+					get_tax_account_description(tax, setting=setting)
+					or f"{tax.get('title')} - {tax.get('rate') * 100.0:.2f}%"
+				),
+				"tax_amount": tax.get("price"),
+				"included_in_print_rate": 1 if taxes_included else 0,
+				"cost_center": effective_cost_center,
+				"item_wise_tax_detail": {item_code: [flt(tax.get("rate")) * 100, flt(tax.get("price"))]},
+				"dont_recompute_tax": 1,
+			}
+			
+			# Add accounting class if configured for this channel
+			if tax_accounting_class:
+				tax_line["accounting_class"] = tax_accounting_class
+			
+			taxes.append(tax_line)
 
 	update_taxes_with_shipping_lines(
 		taxes,
@@ -1435,7 +1442,7 @@ def get_order_taxes(shopify_order, setting, items, store_name=None, cost_center=
 		items,
 		taxes_inclusive=shopify_order.get("taxes_included"),
 		store_name=store_name,
-		cost_center=effective_cost_center,
+		channel_settings=channel,
 	)
 
 	if cint(setting.consolidate_taxes):
@@ -1536,7 +1543,7 @@ def get_tax_account_description(tax, setting=None):
 	return tax_description
 
 
-def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxes_inclusive=False, store_name=None, cost_center=None):
+def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxes_inclusive=False, store_name=None, channel_settings=None):
 	"""Shipping lines represents the shipping details,
 	each such shipping detail consists of a list of tax_lines
 	
@@ -1547,10 +1554,23 @@ def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxe
 	    items: Sales Order items
 	    taxes_inclusive: Whether taxes are included
 	    store_name: Store name for multi-store support
-	    cost_center: Channel-specific cost center (overrides setting.cost_center if provided)
+	    channel_settings: Dict from _get_channel_settings() with channel-specific config
 	"""
+	# Extract channel settings (or use empty dict)
+	channel = channel_settings or {}
+	
 	# Use channel-specific cost center if provided, otherwise fall back to store default
-	effective_cost_center = cost_center or setting.cost_center
+	effective_cost_center = channel.get("cost_center") or setting.cost_center
+	
+	# Use channel-specific shipping account if provided, otherwise use existing mapping logic
+	channel_shipping_account = channel.get("shipping_account")
+	
+	# Use channel-specific tax account for shipping taxes
+	channel_tax_account = channel.get("tax_account")
+	
+	# Get channel's accounting classes
+	shipping_accounting_class = channel.get("shipping_accounting_class")
+	tax_accounting_class = channel.get("tax_accounting_class")
 	
 	shipping_as_item = cint(setting.add_shipping_as_item) and setting.shipping_item
 	for shipping_charge in shipping_lines:
@@ -1577,37 +1597,57 @@ def update_taxes_with_shipping_lines(taxes, shipping_lines, setting, items, taxe
 					}
 				)
 			else:
-				taxes.append(
-					{
-						"charge_type": "Actual",
-						"account_head": get_tax_account_head(shipping_charge, charge_type="shipping", setting=setting),
-						"description": get_tax_account_description(shipping_charge, setting=setting)
-						or shipping_charge["title"],
-						"tax_amount": shipping_charge_amount,
-						"cost_center": effective_cost_center,
-					}
-				)
+				# Use channel shipping account if set, otherwise fall back to store shipping mapping
+				if channel_shipping_account:
+					shipping_account = channel_shipping_account
+				else:
+					shipping_account = get_tax_account_head(shipping_charge, charge_type="shipping", setting=setting)
+				
+				shipping_line = {
+					"charge_type": "Actual",
+					"account_head": shipping_account,
+					"description": get_tax_account_description(shipping_charge, setting=setting)
+					or shipping_charge["title"],
+					"tax_amount": shipping_charge_amount,
+					"cost_center": effective_cost_center,
+				}
+				
+				# Add accounting class if configured for this channel
+				if shipping_accounting_class:
+					shipping_line["accounting_class"] = shipping_accounting_class
+				
+				taxes.append(shipping_line)
 
 		for tax in shipping_charge.get("tax_lines"):
-			taxes.append(
-				{
-					"charge_type": "Actual",
-					"account_head": get_tax_account_head(tax, charge_type="sales_tax", setting=setting),
-					"description": (
-						get_tax_account_description(tax, setting=setting)
-						or f"{tax.get('title')} - {tax.get('rate') * 100.0:.2f}%"
-					),
-					"tax_amount": tax["price"],
-					"included_in_print_rate": 1 if taxes_inclusive else 0,
-					"cost_center": effective_cost_center,
-					"item_wise_tax_detail": {
-						setting.shipping_item: [flt(tax.get("rate")) * 100, flt(tax.get("price"))]
-					}
-					if shipping_as_item
-					else {},
-					"dont_recompute_tax": 1,
+			# Use channel tax account if set, otherwise fall back to store tax mapping
+			if channel_tax_account:
+				tax_account = channel_tax_account
+			else:
+				tax_account = get_tax_account_head(tax, charge_type="sales_tax", setting=setting)
+			
+			tax_line = {
+				"charge_type": "Actual",
+				"account_head": tax_account,
+				"description": (
+					get_tax_account_description(tax, setting=setting)
+					or f"{tax.get('title')} - {tax.get('rate') * 100.0:.2f}%"
+				),
+				"tax_amount": tax["price"],
+				"included_in_print_rate": 1 if taxes_inclusive else 0,
+				"cost_center": effective_cost_center,
+				"item_wise_tax_detail": {
+					setting.shipping_item: [flt(tax.get("rate")) * 100, flt(tax.get("price"))]
 				}
-			)
+				if shipping_as_item
+				else {},
+				"dont_recompute_tax": 1,
+			}
+			
+			# Add accounting class if configured for this channel
+			if tax_accounting_class:
+				tax_line["accounting_class"] = tax_accounting_class
+			
+			taxes.append(tax_line)
 
 
 def get_sales_order(order_id):
@@ -1910,15 +1950,63 @@ def _get_income_account(item_code: str, company: str) -> str:
 	return income_account or None
 
 
+def _get_channel_settings(shopify_order: dict, setting) -> dict:
+	"""Get all channel-specific settings based on order's sales channel (source_name).
+	
+	This is the primary function for channel-based configuration. It returns all
+	settings needed for processing an order from a specific sales channel.
+	
+	Args:
+	    shopify_order: Shopify order data dict
+	    setting: Shopify Store or Setting doc
+	
+	Returns:
+	    dict with keys:
+	        - cost_center: Channel's cost center (applied to all lines)
+	        - bank_account: Channel's bank account (Tier 2 in 3-tier priority)
+	        - tax_account: Channel's tax account (or None to use store default)
+	        - tax_accounting_class: Accounting class for tax lines
+	        - shipping_account: Channel's shipping account (or None to use store default)
+	        - shipping_accounting_class: Accounting class for shipping lines
+	        - channel_name: The matched channel name (for logging)
+	    All values are None if no channel mapping found.
+	"""
+	source_name = shopify_order.get("source_name", "").lower().strip()
+	
+	result = {
+		"cost_center": None,
+		"bank_account": None,
+		"tax_account": None,
+		"tax_accounting_class": None,
+		"shipping_account": None,
+		"shipping_accounting_class": None,
+		"channel_name": None,
+	}
+	
+	if not source_name or not hasattr(setting, "sales_channel_mapping"):
+		return result
+	
+	# Look up in sales channel mapping table
+	for mapping in setting.sales_channel_mapping:
+		mapped_name = mapping.sales_channel_name.lower().strip()
+		if mapped_name == source_name:
+			result["cost_center"] = mapping.cost_center
+			result["bank_account"] = getattr(mapping, "cash_bank_account", None)
+			result["tax_account"] = getattr(mapping, "tax_account", None)
+			result["tax_accounting_class"] = getattr(mapping, "tax_accounting_class", None)
+			result["shipping_account"] = getattr(mapping, "shipping_account", None)
+			result["shipping_accounting_class"] = getattr(mapping, "shipping_accounting_class", None)
+			result["channel_name"] = mapping.sales_channel_name
+			break
+	
+	return result
+
+
 def _get_channel_financials(shopify_order: dict, setting) -> tuple[str | None, str | None]:
 	"""Get cost center and bank account based on order's sales channel.
 	
-	DEPRECATED: Bank account is now determined by payment gateway, not sales channel.
-	This function still returns bank account for backward compatibility but it will
-	be the channel's bank account, not the payment gateway's.
-	
-	Use _get_channel_cost_center() for cost center only.
-	Use _get_payment_gateway_bank_account() for bank account based on payment gateway.
+	DEPRECATED: Use _get_channel_settings() instead for full channel configuration.
+	This function is kept for backward compatibility.
 	
 	Args:
 	    shopify_order: Shopify order data dict
@@ -1927,11 +2015,8 @@ def _get_channel_financials(shopify_order: dict, setting) -> tuple[str | None, s
 	Returns:
 	    tuple: (cost_center, cash_bank_account) or (None, None) if using defaults
 	"""
-	cost_center = _get_channel_cost_center(shopify_order, setting)
-	# For backward compatibility, still return channel's bank account
-	# New code should use _get_payment_gateway_bank_account() instead
-	bank_account = _get_channel_bank_account_legacy(shopify_order, setting)
-	return cost_center, bank_account
+	channel = _get_channel_settings(shopify_order, setting)
+	return channel["cost_center"], channel["bank_account"]
 
 
 def _get_channel_cost_center(shopify_order: dict, setting) -> str | None:
@@ -1946,18 +2031,8 @@ def _get_channel_cost_center(shopify_order: dict, setting) -> str | None:
 	Returns:
 	    Cost center name or None to use default
 	"""
-	source_name = shopify_order.get("source_name", "").lower().strip()
-	
-	if not source_name or not hasattr(setting, "sales_channel_mapping"):
-		return None
-	
-	# Look up in sales channel mapping table
-	for mapping in setting.sales_channel_mapping:
-		mapped_name = mapping.sales_channel_name.lower().strip()
-		if mapped_name == source_name:
-			return mapping.cost_center
-	
-	return None
+	channel = _get_channel_settings(shopify_order, setting)
+	return channel["cost_center"]
 
 
 def _get_channel_bank_account_legacy(shopify_order: dict, setting) -> str | None:
@@ -1966,17 +2041,8 @@ def _get_channel_bank_account_legacy(shopify_order: dict, setting) -> str | None
 	DEPRECATED: Use _get_payment_gateway_bank_account() instead.
 	This is kept for backward compatibility with existing Sales Channel Mapping entries.
 	"""
-	source_name = shopify_order.get("source_name", "").lower().strip()
-	
-	if not source_name or not hasattr(setting, "sales_channel_mapping"):
-		return None
-	
-	for mapping in setting.sales_channel_mapping:
-		mapped_name = mapping.sales_channel_name.lower().strip()
-		if mapped_name == source_name:
-			return mapping.cash_bank_account
-	
-	return None
+	channel = _get_channel_settings(shopify_order, setting)
+	return channel["bank_account"]
 
 
 def _get_payment_gateway_bank_account(shopify_order: dict, setting) -> str | None:
