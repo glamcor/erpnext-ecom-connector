@@ -536,7 +536,7 @@ def create_shopify_fulfillment_v2(setting, order_id, tracking_number, carrier):
 						],
 						"tracking_info": {
 							"number": tracking_number,
-							"company": shopify_carrier
+							"company": carrier
 						},
 						"notify_customer": True
 					}
