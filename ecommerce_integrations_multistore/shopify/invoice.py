@@ -312,6 +312,10 @@ def create_payment_entry_for_invoice(invoice, setting):
 		
 		# Always try to get the full Shopify order data from Integration Log
 		# This is needed for payment gateway mapping (payment_gateway_names field)
+		# Search across all possible webhook methods that could have logged this order
+		order_data = None
+		
+		# Method 1: orders/create webhook -> sync_sales_order
 		order_data = frappe.db.get_value(
 			"Ecommerce Integration Log",
 			{
@@ -322,9 +326,20 @@ def create_payment_entry_for_invoice(invoice, setting):
 			"request_data"
 		)
 		
+		# Method 2: orders/paid webhook -> prepare_sales_invoice
 		if not order_data:
-			# Try to find from order update logs as well
-			# Use get_all with limit=1 and order_by to get the most recent
+			order_data = frappe.db.get_value(
+				"Ecommerce Integration Log",
+				{
+					"request_data": ["like", f'%"id": {order_id}%'],
+					"method": ["like", "%prepare_sales_invoice%"],
+					"status": "Success"
+				},
+				"request_data"
+			)
+		
+		# Method 3: orders/updated webhook -> handle_order_update (get most recent)
+		if not order_data:
 			update_logs = frappe.get_all(
 				"Ecommerce Integration Log",
 				filters={
