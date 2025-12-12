@@ -324,16 +324,20 @@ def create_payment_entry_for_invoice(invoice, setting):
 		
 		if not order_data:
 			# Try to find from order update logs as well
-			order_data = frappe.db.get_value(
+			# Use get_all with limit=1 and order_by to get the most recent
+			update_logs = frappe.get_all(
 				"Ecommerce Integration Log",
-				{
+				filters={
 					"request_data": ["like", f'%"id": {order_id}%'],
 					"method": ["like", "%handle_order_update%"],
 					"status": "Success"
 				},
-				"request_data",
-				order="modified desc"
+				fields=["request_data"],
+				order_by="modified desc",
+				limit=1
 			)
+			if update_logs:
+				order_data = update_logs[0].request_data
 		
 		shopify_order = None
 		if order_data:
