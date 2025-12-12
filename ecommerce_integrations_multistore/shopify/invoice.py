@@ -310,53 +310,61 @@ def create_payment_entry_for_invoice(invoice, setting):
 		# First check the invoice's shopify_order_status field
 		financial_status = invoice.get(ORDER_STATUS_FIELD)
 		
-		# If not paid according to the invoice field, check integration logs as fallback
-		if financial_status != "paid":
-			# Get the original order data from the integration log
+		# Always try to get the full Shopify order data from Integration Log
+		# This is needed for payment gateway mapping (payment_gateway_names field)
+		order_data = frappe.db.get_value(
+			"Ecommerce Integration Log",
+			{
+				"request_data": ["like", f'%"id": {order_id}%'],
+				"method": ["like", "%sync_sales_order%"],
+				"status": "Success"
+			},
+			"request_data"
+		)
+		
+		if not order_data:
+			# Try to find from order update logs as well
 			order_data = frappe.db.get_value(
 				"Ecommerce Integration Log",
 				{
 					"request_data": ["like", f'%"id": {order_id}%'],
-					"method": ["like", "%sync_sales_order%"],
+					"method": ["like", "%handle_order_update%"],
 					"status": "Success"
 				},
-				"request_data"
+				"request_data",
+				order="modified desc"
 			)
-			
-			if not order_data:
-				# Try to find from order update logs as well
-				order_data = frappe.db.get_value(
-					"Ecommerce Integration Log",
-					{
-						"request_data": ["like", f'%"id": {order_id}%'],
-						"method": ["like", "%handle_order_update%"],
-						"status": "Success"
-					},
-					"request_data",
-					order="modified desc"
-				)
-			
-			if not order_data:
+		
+		shopify_order = None
+		if order_data:
+			try:
+				shopify_order = json.loads(order_data)
+				# Update financial_status from the full order data if available
+				financial_status = shopify_order.get("financial_status") or financial_status
+			except:
+				pass
+		
+		# If we couldn't get the full order data, create a minimal dict
+		# Note: This will fall back to store default bank account since we won't have payment_gateway_names
+		if not shopify_order:
+			if financial_status != "paid":
 				frappe.log_error(
-					message=f"Invoice {invoice.name} has financial status '{financial_status}' - not creating payment entry",
+					message=f"Invoice {invoice.name} has financial status '{financial_status}' and no order data found - not creating payment entry",
 					title="Payment Entry Skipped - Not Paid"
 				)
 				return
 			
-			try:
-				shopify_order = json.loads(order_data)
-				financial_status = shopify_order.get("financial_status")
-			except:
-				return
-		else:
-			# Create a minimal shopify_order dict for downstream use
 			shopify_order = {
 				"id": order_id,
 				"name": invoice.get(ORDER_NUMBER_FIELD),
 				"financial_status": financial_status,
 				"created_at": invoice.posting_date,
-				"gateway": "shopify"  # Default gateway
+				# Don't hardcode gateway - let it fall through to store default
 			}
+			frappe.log_error(
+				message=f"Could not find full Shopify order data for invoice {invoice.name}. Payment gateway mapping will not be available.",
+				title="Payment Entry Warning - No Order Data"
+			)
 		
 		# Check if order is paid
 		if financial_status != "paid":
