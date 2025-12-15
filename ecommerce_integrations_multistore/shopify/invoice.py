@@ -387,6 +387,10 @@ def create_payment_entry_for_invoice(invoice, setting):
 		
 		# Check if order is paid
 		if financial_status != "paid":
+			frappe.log_error(
+				message=f"Invoice {invoice.name} has financial_status '{financial_status}' (not 'paid') - skipping payment entry",
+				title="Payment Entry Skipped - Not Paid Status"
+			)
 			return
 		
 		# Check if payment entry already exists
@@ -400,7 +404,16 @@ def create_payment_entry_for_invoice(invoice, setting):
 		)
 		
 		if existing_pe:
+			frappe.log_error(
+				message=f"Payment Entry already exists for invoice {invoice.name}: {existing_pe}",
+				title="Payment Entry Skipped - Already Exists"
+			)
 			return
+		
+		frappe.log_error(
+			message=f"Proceeding to create Payment Entry for invoice {invoice.name}. Financial status: {financial_status}",
+			title="Payment Entry - Proceeding"
+		)
 		
 		# Get cost center from sales channel (for P&L attribution)
 		from ecommerce_integrations_multistore.shopify.order import (

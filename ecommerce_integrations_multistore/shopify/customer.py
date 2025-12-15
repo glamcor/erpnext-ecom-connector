@@ -50,6 +50,32 @@ class ShopifyCustomer(EcommerceCustomer):
 			# Legacy single-store lookup
 			return super().is_synced()
 
+	def get_customer_doc(self):
+		"""Get ERPNext customer document.
+		
+		For multi-store, looks up via the child table link.
+		For singleton, uses legacy field lookup.
+		Uses cached reference if available (during sync_customer flow).
+		"""
+		# Use cached reference if available (set during sync_customer)
+		if hasattr(self, '_customer_doc') and self._customer_doc:
+			return self._customer_doc
+			
+		if self.store_name:
+			# Multi-store lookup via child table
+			link = frappe.db.get_value(
+				"Shopify Customer Store Link",
+				{"store": self.store_name, "shopify_customer_id": self.customer_id},
+				"parent"
+			)
+			if link:
+				return frappe.get_doc("Customer", link)
+			else:
+				raise frappe.DoesNotExistError()
+		else:
+			# Legacy single-store lookup
+			return super().get_customer_doc()
+
 	def sync_customer(self, customer: dict[str, Any]) -> None:
 		"""Create Customer in ERPNext using shopify's Customer dict."""
 
@@ -112,6 +138,10 @@ class ShopifyCustomer(EcommerceCustomer):
 			)
 			if not link_exists:
 				self._add_store_link_direct(customer_doc)
+		
+		# Store customer doc reference for address creation
+		# This avoids lookup issues during the same transaction
+		self._customer_doc = customer_doc
 
 		billing_address = customer.get("billing_address", {}) or customer.get("default_address")
 		shipping_address = customer.get("shipping_address", {})
