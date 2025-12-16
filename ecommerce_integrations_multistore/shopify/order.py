@@ -238,6 +238,7 @@ def update_draft_invoice(invoice_name, shopify_order, store_name, retry_count=0)
 			getdate(shopify_order.get("created_at")),
 			taxes_inclusive=shopify_order.get("taxes_included"),
 			store_name=store_name,
+			shopify_order=shopify_order,
 		)
 		
 		if not items:
@@ -641,6 +642,7 @@ def create_sales_order(shopify_order, setting, company=None):
 			getdate(shopify_order.get("created_at")),
 			taxes_inclusive=shopify_order.get("taxes_included"),
 			store_name=store_name,
+			shopify_order=shopify_order,
 		)
 		
 		# Debug logging for items
@@ -854,6 +856,7 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			getdate(shopify_order.get("created_at")),
 			taxes_inclusive=shopify_order.get("taxes_included"),
 			store_name=store_name,
+			shopify_order=shopify_order,
 		)
 		
 		# Debug logging for items
@@ -1065,13 +1068,13 @@ def create_sales_invoice(shopify_order, setting, company=None):
 		if shopify_order.get("tags"):
 			_sync_order_tags(si, shopify_order.get("tags"))
 		
-		# Assign power supplies based on shipping country
-		assign_power_supplies(si, shopify_order)
+		# Note: Bundle mapping now happens in get_order_items() based on shipping country
+		# The assign_power_supplies() function is deprecated and no longer called
 		
 		# Set warehouse based on shipping destination
 		set_item_warehouses(si, shopify_order, setting)
 		
-		# Recalculate totals after power supply assignment
+		# Recalculate totals
 		si.calculate_taxes_and_totals()
 		si.save(ignore_permissions=True)
 
@@ -1082,117 +1085,20 @@ def create_sales_invoice(shopify_order, setting, company=None):
 
 
 def assign_power_supplies(invoice, shopify_order):
-	"""Assign power supplies to products based on shipping country.
+	"""DEPRECATED: Bundle mapping now happens in get_order_items().
 	
-	This adds the appropriate power supply items for products that need them
-	based on the shipping country configuration.
+	This function previously added power supply items as separate line items.
+	Now, the master SKU is replaced with the regional bundle directly in get_order_items()
+	based on the shipping country, which is a cleaner approach that:
+	- Prevents bundle loss on order updates
+	- Uses ERPNext's native Product Bundle for component explosion
+	- Keeps the invoice cleaner with just the bundle item
 	
-	Args:
-	    invoice: Sales Invoice document
-	    shopify_order: Shopify order data
+	This function is kept for backwards compatibility but does nothing.
 	"""
-	# Skip power supply assignment if DocTypes don't exist yet
-	if not frappe.db.exists("DocType", "Power Supply Mapping") or not frappe.db.exists("DocType", "Product Power Supply Config"):
-		# Silently skip - these are optional features
-		return
-	
-	shipping_address = shopify_order.get("shipping_address", {})
-	country_code = shipping_address.get("country_code", "").upper()
-	
-	if not country_code:
-		frappe.log_error(
-			message=f"No country code in shipping address for order {shopify_order.get('name')}",
-			title="Power Supply Assignment Warning"
-		)
-		return
-	
-	# Get power supply type for this country
-	try:
-		from ecommerce_integrations_multistore.shopify.doctype.power_supply_mapping.power_supply_mapping import PowerSupplyMapping
-		power_supply_type = PowerSupplyMapping.get_power_supply_for_country(country_code)
-	except ImportError:
-		# DocType not installed yet
-		return
-	
-	if not power_supply_type:
-		frappe.log_error(
-			message=f"No power supply mapping found for country {country_code}. Please configure in Power Supply Mapping.",
-			title="Power Supply Configuration Missing"
-		)
-		return
-	
-	power_supplies_added = []
-	
-	# Check each item to see if it needs a power supply
-	for item in invoice.items:
-		# Check if product is configured to need a power supply
-		config = frappe.db.get_value(
-			"Product Power Supply Config",
-			{"product": item.item_code, "enabled": 1},
-			["us_power_supply", "uk_power_supply", "eu_power_supply", "au_power_supply"],
-			as_dict=True
-		)
-		
-		if config:
-			# Map power supply type to field name
-			field_map = {
-				"US": "us_power_supply",
-				"UK": "uk_power_supply", 
-				"EU": "eu_power_supply",
-				"AU": "au_power_supply"
-			}
-			
-			field_name = field_map.get(power_supply_type)
-			power_supply_item = config.get(field_name) if field_name else None
-			
-			if power_supply_item:
-				# Check if power supply already exists in invoice
-				ps_exists = False
-				for existing_item in invoice.items:
-					if existing_item.item_code == power_supply_item:
-						# Power supply already exists, just update quantity
-						existing_item.qty += item.qty
-						ps_exists = True
-						break
-				
-				if not ps_exists:
-					# Get power supply item details
-					ps_item = frappe.get_doc("Item", power_supply_item)
-					
-					# Add power supply as a separate line item
-					invoice.append("items", {
-						"item_code": power_supply_item,
-						"item_name": ps_item.item_name,
-						"description": f"Power Supply ({power_supply_type}) for {item.item_name}",
-						"qty": item.qty,
-						"uom": ps_item.stock_uom,
-						"conversion_factor": 1.0,
-						"rate": ps_item.standard_rate or 0,
-						"warehouse": item.warehouse,
-						"income_account": _get_income_account(ps_item.name, invoice.company)
-					})
-					
-					power_supplies_added.append({
-						"product": item.item_code,
-						"power_supply": power_supply_item,
-						"qty": item.qty
-					})
-			else:
-				frappe.log_error(
-					message=f"No {power_supply_type} power supply configured for product {item.item_code}",
-					title="Power Supply Configuration Incomplete"
-				)
-	
-	if power_supplies_added:
-		frappe.log_error(
-			message=(
-				f"Power supplies added for order {shopify_order.get('name')}:\n"
-				f"Country: {country_code} → {power_supply_type} power supply\n" +
-				"\n".join([f"- {ps['product']}: {ps['power_supply']} (qty: {ps['qty']})" 
-						  for ps in power_supplies_added])
-			),
-			title="Power Supply Assignment Success"
-		)
+	# DEPRECATED: Bundle mapping now happens in get_order_items()
+	# This function is kept for backwards compatibility but no longer adds items
+	pass
 
 
 def set_item_warehouses(invoice, shopify_order, setting):
@@ -1250,8 +1156,8 @@ def set_item_warehouses(invoice, shopify_order, setting):
 	)
 
 
-def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_name=None):
-	"""Get line items for Sales Order.
+def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_name=None, shopify_order=None):
+	"""Get line items for Sales Order/Invoice.
 	
 	Args:
 	    order_items: Shopify line items
@@ -1259,10 +1165,25 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 	    delivery_date: Delivery date
 	    taxes_inclusive: Whether taxes are included
 	    store_name: Store name for multi-store item lookup
+	    shopify_order: Full Shopify order data (needed for bundle mapping based on shipping country)
 	"""
 	items = []
 	all_product_exists = True
 	product_not_exists = []
+	
+	# Get power supply type for bundle mapping (based on shipping country)
+	bundle_power_supply_type = None
+	if shopify_order:
+		shipping_address = shopify_order.get("shipping_address", {})
+		country_code = shipping_address.get("country_code", "").upper()
+		if country_code:
+			# Check if Power Supply Mapping DocType exists
+			if frappe.db.exists("DocType", "Power Supply Mapping"):
+				try:
+					from ecommerce_integrations_multistore.shopify.doctype.power_supply_mapping.power_supply_mapping import PowerSupplyMapping
+					bundle_power_supply_type = PowerSupplyMapping.get_power_supply_for_country(country_code)
+				except ImportError:
+					pass
 
 	for shopify_item in order_items:
 		item_code = None
@@ -1318,6 +1239,43 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 				{"title": shopify_item.get("title"), "sku": shopify_item.get("sku"), ORDER_ID_FIELD: shopify_item.get("id")}
 			)
 			continue
+		
+		# Bundle Mapping: Check if this item has a regional bundle configured
+		# If so, replace the master item with the appropriate bundle for the shipping country
+		original_item_code = item_code  # Keep original for logging
+		if bundle_power_supply_type and frappe.db.exists("DocType", "Product Power Supply Config"):
+			bundle_config = frappe.db.get_value(
+				"Product Power Supply Config",
+				{"product": item_code, "enabled": 1},
+				["us_power_supply", "uk_power_supply", "eu_power_supply", "au_power_supply"],
+				as_dict=True
+			)
+			
+			if bundle_config:
+				# Map power supply type to field name (fields contain bundle item codes)
+				bundle_field_map = {
+					"US": "us_power_supply",
+					"UK": "uk_power_supply", 
+					"EU": "eu_power_supply",
+					"AU": "au_power_supply"
+				}
+				
+				bundle_field = bundle_field_map.get(bundle_power_supply_type)
+				bundle_item = bundle_config.get(bundle_field) if bundle_field else None
+				
+				if bundle_item:
+					# Verify the bundle item exists and is not disabled
+					if frappe.db.get_value("Item", bundle_item, "disabled") == 0:
+						item_code = bundle_item
+						frappe.log_error(
+							message=f"Bundle mapping: {original_item_code} → {bundle_item} (region: {bundle_power_supply_type})",
+							title="Bundle Mapping Applied"
+						)
+					else:
+						frappe.log_error(
+							message=f"Bundle item {bundle_item} is disabled, using original item {item_code}",
+							title="Bundle Mapping Warning"
+						)
 
 		# Get income account from Item, Item Group, or Company
 		income_account = _get_income_account(item_code, setting.company)

@@ -24,11 +24,11 @@
    "fieldname": "product",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Product",
+   "label": "Master Product (Shopify SKU)",
    "options": "Item",
    "reqd": 1,
    "unique": 1,
-   "description": "Product that requires a power supply"
+   "description": "The master product SKU from Shopify that will be mapped to regional bundles"
   },
   {
    "fetch_from": "product.item_name",
@@ -52,21 +52,21 @@
   {
    "fieldname": "section_break_1",
    "fieldtype": "Section Break",
-   "label": "Power Supply Items"
+   "label": "Regional Bundle Mapping"
   },
   {
    "fieldname": "us_power_supply",
    "fieldtype": "Link",
-   "label": "US Power Supply",
+   "label": "US Bundle",
    "options": "Item",
-   "description": "Power supply item for US/Canada/China"
+   "description": "Bundle or item to use for US/Canada/Mexico/China orders. If blank, master product is used."
   },
   {
    "fieldname": "uk_power_supply",
    "fieldtype": "Link",
-   "label": "UK Power Supply",
+   "label": "UK Bundle",
    "options": "Item",
-   "description": "Power supply item for UK/Pakistan/etc"
+   "description": "Bundle or item to use for UK/Hong Kong/Pakistan orders. If blank, master product is used."
   },
   {
    "fieldname": "column_break_2",
@@ -75,16 +75,16 @@
   {
    "fieldname": "eu_power_supply",
    "fieldtype": "Link",
-   "label": "EU Power Supply",
+   "label": "EU Bundle",
    "options": "Item",
-   "description": "Power supply item for EU countries"
+   "description": "Bundle or item to use for EU country orders. If blank, master product is used."
   },
   {
    "fieldname": "au_power_supply",
    "fieldtype": "Link",
-   "label": "AU Power Supply",
+   "label": "AU Bundle",
    "options": "Item",
-   "description": "Power supply item for Australia/New Zealand"
+   "description": "Bundle or item to use for Australia/New Zealand orders. If blank, master product is used."
   }
  ],
  "index_web_pages_for_search": 1,
