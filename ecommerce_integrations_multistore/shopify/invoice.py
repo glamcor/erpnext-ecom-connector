@@ -116,6 +116,9 @@ def auto_create_delivery_note(doc, method=None):
 	This is called via hooks when a Sales Invoice is submitted.
 	Only creates DN for invoices that originated from Shopify.
 	
+	IMPORTANT: ShipStation API calls and Payment Entry creation are deferred
+	to run AFTER the database transaction commits to prevent timeout issues.
+	
 	Args:
 	    doc: Sales Invoice document
 	    method: Hook method name (not used)
@@ -126,72 +129,28 @@ def auto_create_delivery_note(doc, method=None):
 		title="DN Hook Entry Point"
 	)
 	
-	# Debug log
-	frappe.log_error(
-		message=f"auto_create_delivery_note called for invoice {doc.name}, ORDER_ID_FIELD: {doc.get(ORDER_ID_FIELD)}",
-		title="Shopify Hook Debug"
-	)
-	
 	# Wrap EVERYTHING in try-catch to find the issue
 	try:
 		# Check if this is a Shopify invoice
 		if not doc.get(ORDER_ID_FIELD):
-			frappe.log_error(
-				message=f"Invoice {doc.name} is not a Shopify invoice - no {ORDER_ID_FIELD} field",
-				title="Shopify Hook Skipped"
-			)
 			return
-		
-		frappe.log_error(
-			message=f"Step 1: Starting delivery note check",
-			title="DN Creation Debug 1"
-		)
 		
 		# Check if delivery note already exists for this store
 		order_id = doc.get(ORDER_ID_FIELD)
-		frappe.log_error(
-			message=f"Step 2: Order ID = {order_id}",
-			title="DN Creation Debug 2"
-		)
-		
 		dn_filters = {ORDER_ID_FIELD: order_id}
 		store_name = doc.get(STORE_LINK_FIELD)
-		frappe.log_error(
-			message=f"Step 3: Store name = {store_name}",
-			title="DN Creation Debug 3"
-		)
 		
 		if store_name:
 			dn_filters[STORE_LINK_FIELD] = store_name
-			
-		frappe.log_error(
-			message=f"Step 4: DN filters = {dn_filters}",
-			title="DN Creation Debug 4"
-		)
 		
-		existing_dn = frappe.db.get_value(
-			"Delivery Note",
-			dn_filters,
-			"name"
-		)
-		
-		frappe.log_error(
-			message=f"Step 5: Existing DN = {existing_dn}",
-			title="DN Creation Debug 5"
-		)
+		existing_dn = frappe.db.get_value("Delivery Note", dn_filters, "name")
 		
 		if existing_dn:
-			# Delivery Note already exists
 			frappe.log_error(
 				message=f"Delivery Note {existing_dn} already exists for invoice {doc.name}",
 				title="Shopify Hook - DN Exists"
 			)
 			return
-		
-		frappe.log_error(
-			message=f"Step 6: No existing DN, proceeding to create. Invoice docstatus = {doc.docstatus}",
-			title="DN Creation Debug 6"
-		)
 		
 		# Import here to avoid circular dependency
 		from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_delivery_note
@@ -217,31 +176,12 @@ def auto_create_delivery_note(doc, method=None):
 				# Can't determine store, skip
 				return
 		
-		frappe.log_error(
-			message=f"Step 7: Got store settings. sync_delivery_note = {setting.sync_delivery_note}",
-			title="DN Creation Debug 7"
-		)
-		
 		# Check if auto-create is enabled
 		if not cint(setting.sync_delivery_note):
-			frappe.log_error(
-				message=f"Delivery note sync is disabled for store {store_name}",
-				title="DN Creation Skipped - Disabled"
-			)
 			return
 		
-		frappe.log_error(
-			message=f"Step 8: Creating delivery note for invoice {doc.name}",
-			title="DN Creation Debug 8"
-		)
-		
-		# Create delivery note
+		# Create delivery note (this is fast and should be in the transaction)
 		dn = make_delivery_note(doc.name)
-		
-		frappe.log_error(
-			message=f"Step 9: Created DN object: {dn.name if dn else 'None'}",
-			title="DN Creation Debug 9"
-		)
 		
 		# Copy Shopify fields
 		dn.set(ORDER_ID_FIELD, doc.get(ORDER_ID_FIELD))
@@ -267,12 +207,65 @@ def auto_create_delivery_note(doc, method=None):
 			title="Shopify Auto Delivery Note"
 		)
 		
-		# Send to ShipStation if configured
-		from ecommerce_integrations_multistore.shopify.fulfillment import send_to_shipstation
-		send_to_shipstation(dn, setting)
+		# CRITICAL FIX: Defer ShipStation and Payment Entry to AFTER transaction commits
+		# This prevents timeout issues because:
+		# 1. ShipStation API calls can take 5-30 seconds
+		# 2. Payment Entry creation involves multiple DB operations
+		# 3. All of this was previously inside the Sales Invoice submit transaction
+		# 4. If total time exceeded DB lock timeout (~50s), everything rolled back
+		#    EXCEPT ShipStation (external API call can't be rolled back)
+		#
+		# By using frappe.db.after_commit(), these operations run AFTER the transaction
+		# commits successfully, so:
+		# - Invoice submission completes quickly
+		# - Delivery Note is created and committed
+		# - ShipStation and Payment Entry run outside the transaction
+		# - If they fail, the invoice/DN are still saved
 		
-		# Create payment entry if order is paid
-		create_payment_entry_for_invoice(doc, setting)
+		# Store references for the after_commit callback
+		dn_name = dn.name
+		invoice_name = doc.name
+		setting_name = setting.name
+		
+		def after_commit_tasks():
+			"""Run ShipStation and Payment Entry after transaction commits."""
+			try:
+				# Re-fetch documents (we're in a new transaction now)
+				delivery_note = frappe.get_doc("Delivery Note", dn_name)
+				invoice = frappe.get_doc("Sales Invoice", invoice_name)
+				store_setting = frappe.get_doc(STORE_DOCTYPE, setting_name)
+				
+				frappe.log_error(
+					message=f"After-commit tasks starting for invoice {invoice_name}",
+					title="After Commit - Start"
+				)
+				
+				# Send to ShipStation if configured
+				from ecommerce_integrations_multistore.shopify.fulfillment import send_to_shipstation
+				send_to_shipstation(delivery_note, store_setting)
+				
+				# Create payment entry if order is paid
+				create_payment_entry_for_invoice(invoice, store_setting)
+				
+				frappe.log_error(
+					message=f"After-commit tasks completed for invoice {invoice_name}",
+					title="After Commit - Complete"
+				)
+				
+			except Exception as e:
+				# Log error but don't fail - the invoice is already committed
+				frappe.log_error(
+					message=f"After-commit tasks failed for invoice {invoice_name}: {str(e)}\n{frappe.get_traceback()}",
+					title="After Commit - Error"
+				)
+		
+		# Register the callback to run after transaction commits
+		frappe.db.after_commit.add(after_commit_tasks)
+		
+		frappe.log_error(
+			message=f"Registered after-commit tasks for invoice {doc.name}",
+			title="After Commit - Registered"
+		)
 		
 	except Exception as e:
 		# Log error but don't fail the invoice submission

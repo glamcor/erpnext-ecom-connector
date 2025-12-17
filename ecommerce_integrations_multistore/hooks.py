@@ -35,16 +35,16 @@ required_apps = ["erpnext"]
 doctype_js = {
 	"Shopify Settings": "public/js/shopify/old_settings.js",
 	"Sales Order": [
-		"public/js/unicommerce/sales_order.js",
+		# "public/js/unicommerce/sales_order.js",  # DISABLED: Unicommerce not used
 		"public/js/common/ecommerce_transactions.js",
 	],
 	"Sales Invoice": [
-		"public/js/unicommerce/sales_invoice.js",
+		# "public/js/unicommerce/sales_invoice.js",  # DISABLED: Unicommerce not used
 		"public/js/common/ecommerce_transactions.js",
 	],
-	"Item": "public/js/unicommerce/item.js",
-	"Stock Entry": "public/js/unicommerce/stock_entry.js",
-	"Pick List": "public/js/unicommerce/pick_list.js",
+	# "Item": "public/js/unicommerce/item.js",  # DISABLED: Unicommerce not used
+	# "Stock Entry": "public/js/unicommerce/stock_entry.js",  # DISABLED: Unicommerce not used
+	# "Pick List": "public/js/unicommerce/pick_list.js",  # DISABLED: Unicommerce not used
 }
 doctype_list_js = {
 	"Sales Invoice": "public/js/shopify/sales_invoice_list.js"
@@ -114,26 +114,28 @@ doc_events = {
 		"on_update": "ecommerce_integrations_multistore.shopify.product.upload_erpnext_item",
 		"validate": [
 			"ecommerce_integrations_multistore.utils.taxation.validate_tax_template",
-			"ecommerce_integrations_multistore.unicommerce.product.validate_item",
+			# "ecommerce_integrations_multistore.unicommerce.product.validate_item",  # DISABLED: Unicommerce not used
 		],
 	},
-	"Sales Order": {
-		"on_update_after_submit": "ecommerce_integrations_multistore.unicommerce.order.update_shipping_info",
-		"on_cancel": "ecommerce_integrations_multistore.unicommerce.status_updater.ignore_pick_list_on_sales_order_cancel",
-	},
-	"Stock Entry": {
-		"validate": "ecommerce_integrations_multistore.unicommerce.grn.validate_stock_entry_for_grn",
-		"on_submit": "ecommerce_integrations_multistore.unicommerce.grn.upload_grn",
-		"on_cancel": "ecommerce_integrations_multistore.unicommerce.grn.prevent_grn_cancel",
-	},
+	# DISABLED: Unicommerce Sales Order hooks not used
+	# "Sales Order": {
+	# 	"on_update_after_submit": "ecommerce_integrations_multistore.unicommerce.order.update_shipping_info",
+	# 	"on_cancel": "ecommerce_integrations_multistore.unicommerce.status_updater.ignore_pick_list_on_sales_order_cancel",
+	# },
+	# DISABLED: Unicommerce Stock Entry hooks not used
+	# "Stock Entry": {
+	# 	"validate": "ecommerce_integrations_multistore.unicommerce.grn.validate_stock_entry_for_grn",
+	# 	"on_submit": "ecommerce_integrations_multistore.unicommerce.grn.upload_grn",
+	# 	"on_cancel": "ecommerce_integrations_multistore.unicommerce.grn.prevent_grn_cancel",
+	# },
 	"Item Price": {"on_change": "ecommerce_integrations_multistore.utils.price_list.discard_item_prices"},
-	"Pick List": {"validate": "ecommerce_integrations_multistore.unicommerce.pick_list.validate"},
+	# "Pick List": {"validate": "ecommerce_integrations_multistore.unicommerce.pick_list.validate"},  # DISABLED: Unicommerce not used
 	"Sales Invoice": {
 		"on_submit": [
-			"ecommerce_integrations_multistore.unicommerce.invoice.on_submit",
+			# "ecommerce_integrations_multistore.unicommerce.invoice.on_submit",  # DISABLED: Unicommerce not used
 			"ecommerce_integrations_multistore.shopify.invoice.auto_create_delivery_note",
 		],
-		"on_cancel": "ecommerce_integrations_multistore.unicommerce.invoice.on_cancel",
+		# "on_cancel": "ecommerce_integrations_multistore.unicommerce.invoice.on_cancel",  # DISABLED: Unicommerce not used
 	},
 	"Delivery Note": {
 		"on_update_after_submit": "ecommerce_integrations_multistore.shopify.delivery_note.on_delivery_note_update_after_submit",
@@ -151,7 +153,9 @@ scheduler_events = {
 		"ecommerce_integrations_multistore.shopify.inventory.update_inventory_on_shopify",
 	],
 	"daily": [],
-	"daily_long": ["ecommerce_integrations_multistore.zenoti.doctype.zenoti_settings.zenoti_settings.sync_stocks"],
+	"daily_long": [
+		# "ecommerce_integrations_multistore.zenoti.doctype.zenoti_settings.zenoti_settings.sync_stocks",  # DISABLED: Zenoti not used
+	],
 	"hourly": [
 		# Multi-store orchestrator for order sync
 		"ecommerce_integrations_multistore.shopify.orchestrator.orchestrate_order_sync",
@@ -160,20 +164,20 @@ scheduler_events = {
 		"ecommerce_integrations_multistore.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_settings.schedule_get_order_details",
 	],
 	"hourly_long": [
-		"ecommerce_integrations_multistore.zenoti.doctype.zenoti_settings.zenoti_settings.sync_invoices",
-		"ecommerce_integrations_multistore.unicommerce.product.upload_new_items",
-		"ecommerce_integrations_multistore.unicommerce.status_updater.update_sales_order_status",
-		"ecommerce_integrations_multistore.unicommerce.status_updater.update_shipping_package_status",
+		# "ecommerce_integrations_multistore.zenoti.doctype.zenoti_settings.zenoti_settings.sync_invoices",  # DISABLED: Zenoti not used
+		# "ecommerce_integrations_multistore.unicommerce.product.upload_new_items",  # DISABLED: Unicommerce not used
+		# "ecommerce_integrations_multistore.unicommerce.status_updater.update_sales_order_status",  # DISABLED: Unicommerce not used
+		# "ecommerce_integrations_multistore.unicommerce.status_updater.update_shipping_package_status",  # DISABLED: Unicommerce not used
 	],
 	"weekly": [],
 	"monthly": [],
 	"cron": {
-		# Every five minutes
-		"*/5 * * * *": [
-			"ecommerce_integrations_multistore.unicommerce.order.sync_new_orders",
-			"ecommerce_integrations_multistore.unicommerce.inventory.update_inventory_on_unicommerce",
-			"ecommerce_integrations_multistore.unicommerce.delivery_note.prepare_delivery_note",
-		],
+		# DISABLED: Unicommerce cron jobs not used
+		# "*/5 * * * *": [
+		# 	"ecommerce_integrations_multistore.unicommerce.order.sync_new_orders",
+		# 	"ecommerce_integrations_multistore.unicommerce.inventory.update_inventory_on_unicommerce",
+		# 	"ecommerce_integrations_multistore.unicommerce.delivery_note.prepare_delivery_note",
+		# ],
 	},
 }
 
