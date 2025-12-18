@@ -326,6 +326,11 @@ def create_payment_entry_for_invoice(invoice, setting):
 		# Search across all possible webhook methods that could have logged this order
 		order_data = None
 		
+		frappe.log_error(
+			message=f"Invoice {invoice.name}: Looking up Integration Log for order_id={order_id}",
+			title="Payment Entry Debug - Log Lookup Start"
+		)
+		
 		# Method 1: orders/create webhook -> sync_sales_order
 		order_data = frappe.db.get_value(
 			"Ecommerce Integration Log",
@@ -335,6 +340,11 @@ def create_payment_entry_for_invoice(invoice, setting):
 				"status": "Success"
 			},
 			"request_data"
+		)
+		
+		frappe.log_error(
+			message=f"Invoice {invoice.name}: Method 1 (sync_sales_order) found data: {bool(order_data)}",
+			title="Payment Entry Debug - Log Lookup M1"
 		)
 		
 		# Method 2: orders/paid webhook -> prepare_sales_invoice
@@ -347,6 +357,10 @@ def create_payment_entry_for_invoice(invoice, setting):
 					"status": "Success"
 				},
 				"request_data"
+			)
+			frappe.log_error(
+				message=f"Invoice {invoice.name}: Method 2 (prepare_sales_invoice) found data: {bool(order_data)}",
+				title="Payment Entry Debug - Log Lookup M2"
 			)
 		
 		# Method 3: orders/updated webhook -> handle_order_update (get most recent)
@@ -364,22 +378,42 @@ def create_payment_entry_for_invoice(invoice, setting):
 			)
 			if update_logs:
 				order_data = update_logs[0].request_data
+			frappe.log_error(
+				message=f"Invoice {invoice.name}: Method 3 (handle_order_update) found data: {bool(order_data)}",
+				title="Payment Entry Debug - Log Lookup M3"
+			)
 		
 		shopify_order = None
 		if order_data:
 			try:
 				shopify_order = json.loads(order_data)
+				frappe.log_error(
+					message=f"Invoice {invoice.name}: Parsed shopify_order, has payment_gateway_names: {bool(shopify_order.get('payment_gateway_names'))}",
+					title="Payment Entry Debug - JSON Parsed"
+				)
 				# NOTE: Do NOT update financial_status from log data!
 				# The Integration Log may contain stale data (e.g., "authorized" from orders/create)
 				# while the invoice's shopify_order_status field has been updated to "paid"
 				# by the orders/paid webhook. The invoice field is the authoritative source.
 				# We only need the log data for payment_gateway_names (bank account mapping).
-			except:
-				pass
+			except Exception as json_err:
+				frappe.log_error(
+					message=f"Invoice {invoice.name}: JSON parse error: {str(json_err)}",
+					title="Payment Entry Debug - JSON Error"
+				)
+		else:
+			frappe.log_error(
+				message=f"Invoice {invoice.name}: No order data found in any Integration Log",
+				title="Payment Entry Debug - No Log Data"
+			)
 		
 		# If we couldn't get the full order data, create a minimal dict
 		# Note: This will fall back to store default bank account since we won't have payment_gateway_names
 		if not shopify_order:
+			frappe.log_error(
+				message=f"Invoice {invoice.name}: No shopify_order, checking financial_status='{financial_status}'",
+				title="Payment Entry Debug - No Order Check"
+			)
 			if financial_status != "paid":
 				frappe.log_error(
 					message=f"Invoice {invoice.name} has financial status '{financial_status}' and no order data found - not creating payment entry",
@@ -395,8 +429,8 @@ def create_payment_entry_for_invoice(invoice, setting):
 				# Don't hardcode gateway - let it fall through to store default
 			}
 			frappe.log_error(
-				message=f"Could not find full Shopify order data for invoice {invoice.name}. Payment gateway mapping will not be available.",
-				title="Payment Entry Warning - No Order Data"
+				message=f"Invoice {invoice.name}: Created minimal shopify_order dict",
+				title="Payment Entry Debug - Minimal Order"
 			)
 		
 		# Check if order is paid (case-insensitive comparison)
