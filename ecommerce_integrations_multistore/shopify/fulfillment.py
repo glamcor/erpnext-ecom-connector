@@ -36,6 +36,9 @@ def prepare_delivery_note(payload, request_id=None, store_name=None):
 		cutoff_date = frappe.db.get_value(STORE_DOCTYPE, store_name, "order_cutoff_date")
 		if cutoff_date:
 			order_created_at = get_datetime(order.get("created_at"))
+			# Strip timezone info for comparison (Shopify sends timezone-aware, DB stores naive)
+			if order_created_at and hasattr(order_created_at, 'replace'):
+				order_created_at = order_created_at.replace(tzinfo=None)
 			if order_created_at and order_created_at < cutoff_date:
 				create_log(
 					status="Skipped",
