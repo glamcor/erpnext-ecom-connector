@@ -207,64 +207,30 @@ def auto_create_delivery_note(doc, method=None):
 			title="Shopify Auto Delivery Note"
 		)
 		
-		# CRITICAL FIX: Defer ShipStation and Payment Entry to AFTER transaction commits
-		# This prevents timeout issues because:
-		# 1. ShipStation API calls can take 5-30 seconds
-		# 2. Payment Entry creation involves multiple DB operations
-		# 3. All of this was previously inside the Sales Invoice submit transaction
-		# 4. If total time exceeded DB lock timeout (~50s), everything rolled back
-		#    EXCEPT ShipStation (external API call can't be rolled back)
+		# CRITICAL: Use background job for ShipStation and Payment Entry
+		# 
+		# Why background job (frappe.enqueue) instead of after_commit:
+		# - after_commit still runs in the same HTTP request, causing timeouts
+		# - Background jobs run in a separate worker process
+		# - HTTP response returns immediately to the user
+		# - ShipStation API (5-30s) doesn't block the UI
 		#
-		# By using frappe.db.after_commit(), these operations run AFTER the transaction
-		# commits successfully, so:
-		# - Invoice submission completes quickly
-		# - Delivery Note is created and committed
-		# - ShipStation and Payment Entry run outside the transaction
-		# - If they fail, the invoice/DN are still saved
+		# The job runs after the current transaction commits because we're
+		# enqueueing it here (before commit), and the worker will fetch
+		# fresh data from the database.
 		
-		# Store references for the after_commit callback
-		dn_name = dn.name
-		invoice_name = doc.name
-		setting_name = setting.name
-		
-		def after_commit_tasks():
-			"""Run ShipStation and Payment Entry after transaction commits."""
-			try:
-				# Re-fetch documents (we're in a new transaction now)
-				delivery_note = frappe.get_doc("Delivery Note", dn_name)
-				invoice = frappe.get_doc("Sales Invoice", invoice_name)
-				store_setting = frappe.get_doc(STORE_DOCTYPE, setting_name)
-				
-				frappe.log_error(
-					message=f"After-commit tasks starting for invoice {invoice_name}",
-					title="After Commit - Start"
-				)
-				
-				# Send to ShipStation if configured
-				from ecommerce_integrations_multistore.shopify.fulfillment import send_to_shipstation
-				send_to_shipstation(delivery_note, store_setting)
-				
-				# Create payment entry if order is paid
-				create_payment_entry_for_invoice(invoice, store_setting)
-				
-				frappe.log_error(
-					message=f"After-commit tasks completed for invoice {invoice_name}",
-					title="After Commit - Complete"
-				)
-				
-			except Exception as e:
-				# Log error but don't fail - the invoice is already committed
-				frappe.log_error(
-					message=f"After-commit tasks failed for invoice {invoice_name}: {str(e)}\n{frappe.get_traceback()}",
-					title="After Commit - Error"
-				)
-		
-		# Register the callback to run after transaction commits
-		frappe.db.after_commit.add(after_commit_tasks)
+		frappe.enqueue(
+			"ecommerce_integrations_multistore.shopify.invoice.process_post_submit_tasks",
+			queue="default",
+			timeout=300,  # 5 minutes max for external API calls
+			invoice_name=doc.name,
+			dn_name=dn.name,
+			setting_name=setting.name,
+		)
 		
 		frappe.log_error(
-			message=f"Registered after-commit tasks for invoice {doc.name}",
-			title="After Commit - Registered"
+			message=f"Enqueued background job for invoice {doc.name}, DN {dn.name}",
+			title="Post-Submit Job Enqueued"
 		)
 		
 	except Exception as e:
@@ -273,6 +239,52 @@ def auto_create_delivery_note(doc, method=None):
 			message=f"CRITICAL ERROR in auto_create_delivery_note for {doc.name}: {str(e)}\n{frappe.get_traceback()}",
 			title="DN Hook Critical Error"
 		)
+
+
+def process_post_submit_tasks(invoice_name, dn_name, setting_name):
+	"""Background job to process ShipStation and Payment Entry after invoice submit.
+	
+	This runs in a separate worker process, so it doesn't block the HTTP request.
+	The user sees immediate response when submitting the invoice.
+	
+	Args:
+		invoice_name: Sales Invoice name
+		dn_name: Delivery Note name
+		setting_name: Shopify Store name
+	"""
+	frappe.log_error(
+		message=f"Background job starting for invoice {invoice_name}, DN {dn_name}",
+		title="Post-Submit Job - Start"
+	)
+	
+	try:
+		# Fetch documents fresh from database
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+		delivery_note = frappe.get_doc("Delivery Note", dn_name)
+		setting = frappe.get_doc(STORE_DOCTYPE, setting_name)
+		
+		# Send to ShipStation if configured
+		if cint(setting.sync_delivery_note):
+			from ecommerce_integrations_multistore.shopify.fulfillment import send_to_shipstation
+			send_to_shipstation(delivery_note, setting)
+		
+		# Create payment entry if order is paid
+		create_payment_entry_for_invoice(invoice, setting)
+		
+		# Commit the payment entry
+		frappe.db.commit()
+		
+		frappe.log_error(
+			message=f"Background job completed for invoice {invoice_name}",
+			title="Post-Submit Job - Complete"
+		)
+		
+	except Exception as e:
+		frappe.log_error(
+			message=f"Background job failed for invoice {invoice_name}: {str(e)}\n{frappe.get_traceback()}",
+			title="Post-Submit Job - Error"
+		)
+		# Don't re-raise - the invoice/DN are already committed
 
 
 def create_payment_entry_for_invoice(invoice, setting):
