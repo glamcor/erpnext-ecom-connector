@@ -303,6 +303,12 @@ def create_payment_entry_for_invoice(invoice, setting):
 		# First check the invoice's shopify_order_status field
 		financial_status = invoice.get(ORDER_STATUS_FIELD)
 		
+		# Debug: Log the raw financial status from invoice
+		frappe.log_error(
+			message=f"Invoice {invoice.name}: ORDER_STATUS_FIELD raw value = '{financial_status}' (type: {type(financial_status).__name__})",
+			title="Payment Entry Debug - Status Check"
+		)
+		
 		# Always try to get the full Shopify order data from Integration Log
 		# This is needed for payment gateway mapping (payment_gateway_names field)
 		# Search across all possible webhook methods that could have logged this order
@@ -378,22 +384,38 @@ def create_payment_entry_for_invoice(invoice, setting):
 				title="Payment Entry Warning - No Order Data"
 			)
 		
-		# Check if order is paid
-		if financial_status != "paid":
+		# Check if order is paid (case-insensitive comparison)
+		# Shopify uses lowercase "paid" but ERPNext UI might display differently
+		financial_status_lower = (financial_status or "").lower().strip()
+		
+		frappe.log_error(
+			message=f"Invoice {invoice.name}: financial_status='{financial_status}', normalized='{financial_status_lower}'",
+			title="Payment Entry Debug - Final Status"
+		)
+		
+		if financial_status_lower != "paid":
 			frappe.log_error(
-				message=f"Invoice {invoice.name} has financial_status '{financial_status}' (not 'paid') - skipping payment entry",
+				message=f"Invoice {invoice.name} has financial_status '{financial_status}' (normalized: '{financial_status_lower}', not 'paid') - skipping payment entry",
 				title="Payment Entry Skipped - Not Paid Status"
 			)
 			return
 		
 		# Check if payment entry already exists
-		existing_pe = frappe.db.exists(
-			"Payment Entry",
-			{
-				"reference_name": invoice.name,
-				"reference_doctype": "Sales Invoice",
-				"docstatus": ["!=", 2]
-			}
+		# Note: Payment Entry uses a child table "Payment Entry Reference" for references
+		# This query checks for any PE that references this invoice
+		existing_pe = frappe.db.sql("""
+			SELECT parent FROM `tabPayment Entry Reference`
+			WHERE reference_doctype = 'Sales Invoice'
+			AND reference_name = %s
+			AND docstatus != 2
+			LIMIT 1
+		""", (invoice.name,), as_dict=True)
+		
+		existing_pe = existing_pe[0].parent if existing_pe else None
+		
+		frappe.log_error(
+			message=f"Invoice {invoice.name}: existing_pe check result = '{existing_pe}'",
+			title="Payment Entry Debug - Exists Check"
 		)
 		
 		if existing_pe:
