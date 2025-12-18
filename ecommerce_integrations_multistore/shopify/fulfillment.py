@@ -23,10 +23,26 @@ def prepare_delivery_note(payload, request_id=None, store_name=None):
 	    request_id: Integration log ID
 	    store_name: Shopify Store name (multi-store support)
 	"""
+	from frappe.utils import get_datetime
+	from ecommerce_integrations_multistore.shopify.utils import create_shopify_log as create_log
+	
 	frappe.set_user("Administrator")
 	frappe.flags.request_id = request_id
 
 	order = payload
+
+	# Check order cutoff date - ignore orders created before the cutoff
+	if store_name:
+		cutoff_date = frappe.db.get_value(STORE_DOCTYPE, store_name, "order_cutoff_date")
+		if cutoff_date:
+			order_created_at = get_datetime(order.get("created_at"))
+			if order_created_at and order_created_at < cutoff_date:
+				create_log(
+					status="Skipped",
+					message=f"Fulfillment for order {order.get('name')} ignored - order created at {order_created_at} is before cutoff date {cutoff_date}",
+					store_name=store_name
+				)
+				return
 
 	try:
 		# Look for Sales Invoice instead of Sales Order

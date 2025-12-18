@@ -30,6 +30,7 @@ def prepare_sales_invoice(payload, request_id=None, store_name=None, retry_count
 	    retry_count: Number of retries for concurrent modification handling
 	"""
 	import time
+	from frappe.utils import get_datetime
 	
 	MAX_RETRIES = 5
 	order = payload
@@ -37,6 +38,19 @@ def prepare_sales_invoice(payload, request_id=None, store_name=None, retry_count
 
 	frappe.set_user("Administrator")
 	frappe.flags.request_id = request_id
+
+	# Check order cutoff date - ignore orders created before the cutoff
+	if store_name:
+		cutoff_date = frappe.db.get_value(STORE_DOCTYPE, store_name, "order_cutoff_date")
+		if cutoff_date:
+			order_created_at = get_datetime(order.get("created_at"))
+			if order_created_at and order_created_at < cutoff_date:
+				create_shopify_log(
+					status="Skipped",
+					message=f"Payment update for order {order.get('name')} ignored - order created at {order_created_at} is before cutoff date {cutoff_date}",
+					store_name=store_name
+				)
+				return
 
 	try:
 		# Look for existing Sales Invoice - include current status for idempotency check

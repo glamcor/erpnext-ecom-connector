@@ -16,6 +16,8 @@
   "shared_secret",
   "section_break_webhooks",
   "webhooks",
+  "section_break_order_cutoff",
+  "order_cutoff_date",
   "customer_settings_section",
   "default_customer",
   "column_break_14",
@@ -133,6 +135,17 @@
    "label": "Webhooks",
    "options": "Shopify Webhooks",
    "read_only": 1
+  },
+  {
+   "fieldname": "section_break_order_cutoff",
+   "fieldtype": "Section Break",
+   "label": "Order Cutoff Date"
+  },
+  {
+   "fieldname": "order_cutoff_date",
+   "fieldtype": "Datetime",
+   "label": "Ignore Orders Before",
+   "description": "Webhooks for orders created before this date will be ignored. Use this to prevent old orders from being imported when going live. Leave empty to process all orders."
   },
   {
    "fieldname": "customer_settings_section",

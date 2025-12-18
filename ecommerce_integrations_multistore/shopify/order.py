@@ -84,6 +84,19 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 	frappe.set_user("Administrator")
 	frappe.flags.request_id = request_id
 
+	# Check order cutoff date - ignore orders created before the cutoff
+	if store_name:
+		cutoff_date = frappe.db.get_value(STORE_DOCTYPE, store_name, "order_cutoff_date")
+		if cutoff_date:
+			order_created_at = get_datetime(order.get("created_at"))
+			if order_created_at and order_created_at < cutoff_date:
+				create_shopify_log(
+					status="Skipped",
+					message=f"Order {order.get('name')} created at {order_created_at} is before cutoff date {cutoff_date}. Skipping.",
+					store_name=store_name
+				)
+				return
+
 	# Check if invoice already exists for this store
 	existing_invoice_filters = {ORDER_ID_FIELD: cstr(order["id"])}
 	if store_name:
@@ -496,6 +509,19 @@ def handle_order_update(payload, request_id=None, store_name=None):
 	frappe.flags.request_id = request_id
 	
 	order_id = cstr(order["id"])
+	
+	# Check order cutoff date - ignore orders created before the cutoff
+	if store_name:
+		cutoff_date = frappe.db.get_value(STORE_DOCTYPE, store_name, "order_cutoff_date")
+		if cutoff_date:
+			order_created_at = get_datetime(order.get("created_at"))
+			if order_created_at and order_created_at < cutoff_date:
+				create_shopify_log(
+					status="Skipped",
+					message=f"Order update for {order.get('name')} ignored - order created at {order_created_at} is before cutoff date {cutoff_date}",
+					store_name=store_name
+				)
+				return
 	
 	# Initial debug log
 	frappe.log_error(
