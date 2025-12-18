@@ -94,6 +94,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_auth",
    "fieldtype": "Section Break",
    "label": "Authentication Details"
@@ -137,6 +138,7 @@
    "read_only": 1
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_order_cutoff",
    "fieldtype": "Section Break",
    "label": "Order Cutoff Date"
@@ -148,6 +150,7 @@
    "description": "Webhooks for orders created before this date will be ignored. Use this to prevent old orders from being imported when going live. Leave empty to process all orders."
   },
   {
+   "collapsible": 1,
    "fieldname": "customer_settings_section",
    "fieldtype": "Section Break",
    "label": "Customer Settings"
@@ -193,9 +196,10 @@
    "options": "Price List"
   },
   {
+   "collapsible": 1,
    "fieldname": "company_dependent_settings_section",
    "fieldtype": "Section Break",
-   "label": "Company Dependent settings"
+   "label": "Company Dependent Settings"
   },
   {
    "fieldname": "company",
@@ -249,6 +253,7 @@
    "options": "Shopify Payment Gateway Mapping"
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_25",
    "fieldtype": "Section Break",
    "label": "Order Sync Settings"
@@ -320,8 +325,10 @@
    "description": "Enable this if your warehouse ships internationally via ShipStation. If unchecked, only US domestic orders are sent."
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_22",
-   "fieldtype": "Section Break"
+   "fieldtype": "Section Break",
+   "label": "Tax Account Mapping"
   },
   {
    "fieldname": "html_16",
@@ -336,6 +343,7 @@
    "options": "Shopify Tax Account"
   },
   {
+   "collapsible": 1,
    "fieldname": "erpnext_to_shopify_sync_section",
    "fieldtype": "Section Break",
    "label": "ERPNext to Shopify Sync"
@@ -368,6 +376,7 @@
    "label": "Fetch Shopify Locations"
   },
   {
+   "collapsible": 1,
    "fieldname": "inventory_sync_section",
    "fieldtype": "Section Break",
    "label": "Inventory Sync"
@@ -392,6 +401,7 @@
    "label": "Sync Old Orders"
   },
   {
+   "collapsible": 1,
    "fieldname": "sync_old_orders_section",
    "fieldtype": "Section Break",
    "label": "Sync Old Orders"
@@ -483,9 +493,10 @@
    "options": "Account"
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_zeoy",
    "fieldtype": "Section Break",
-   "hide_border": 1
+   "label": "Default Tax Accounts"
   },
   {
    "fieldname": "column_break_qibo",
@@ -499,6 +510,7 @@
    "options": "Account"
   },
   {
+   "collapsible": 1,
    "fieldname": "warehouse_settings_section",
    "fieldtype": "Section Break",
    "label": "Warehouse Settings"
