@@ -15,7 +15,9 @@ from ecommerce_integrations_multistore.shopify.constants import (
 	ORDER_ITEM_DISCOUNT_FIELD,
 	ORDER_NUMBER_FIELD,
 	ORDER_STATUS_FIELD,
+	PAYMENT_GATEWAY_FIELD,
 	SETTING_DOCTYPE,
+	SOURCE_NAME_FIELD,
 	STORE_DOCTYPE,
 	STORE_LINK_FIELD,
 )
@@ -970,12 +972,19 @@ def create_sales_invoice(shopify_order, setting, company=None):
 		# Get company currency
 		currency = frappe.get_cached_value("Company", setting.company, "default_currency")
 		
+		# Extract payment gateway info for bank account mapping
+		gateway_names = shopify_order.get("payment_gateway_names", [])
+		payment_gateway = gateway_names[0] if gateway_names else shopify_order.get("gateway", "")
+		source_name = shopify_order.get("source_name", "")
+		
 		si_dict = {
 			"doctype": "Sales Invoice",
 			"naming_series": setting.sales_invoice_series or "SI-Shopify-",
 			ORDER_ID_FIELD: str(shopify_order.get("id")),
 			ORDER_NUMBER_FIELD: shopify_order.get("name"),
 			ORDER_STATUS_FIELD: shopify_order.get("financial_status"),
+			PAYMENT_GATEWAY_FIELD: payment_gateway,  # Store payment gateway for bank account mapping
+			SOURCE_NAME_FIELD: source_name,  # Store sales channel for channel mapping
 			"customer": customer,
 			"customer_address": billing_address,
 			"shipping_address_name": shipping_address,

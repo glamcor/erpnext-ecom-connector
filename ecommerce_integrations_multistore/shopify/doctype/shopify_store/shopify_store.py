@@ -23,6 +23,8 @@ from ecommerce_integrations_multistore.shopify.constants import (
 	ORDER_ITEM_DISCOUNT_FIELD,
 	ORDER_NUMBER_FIELD,
 	ORDER_STATUS_FIELD,
+	PAYMENT_GATEWAY_FIELD,
+	SOURCE_NAME_FIELD,
 	STORE_LINK_FIELD,
 	SUPPLIER_ID_FIELD,
 )
@@ -303,6 +305,24 @@ def setup_custom_fields():
 				insert_after=ORDER_NUMBER_FIELD,
 				read_only=1,
 				print_hide=1,
+			),
+			dict(
+				fieldname=PAYMENT_GATEWAY_FIELD,
+				label="Shopify Payment Gateway",
+				fieldtype="Data",
+				insert_after=ORDER_STATUS_FIELD,
+				read_only=1,
+				print_hide=1,
+				description="Payment gateway used (e.g., shopify_payments, paypal)",
+			),
+			dict(
+				fieldname=SOURCE_NAME_FIELD,
+				label="Shopify Source Name",
+				fieldtype="Data",
+				insert_after=PAYMENT_GATEWAY_FIELD,
+				read_only=1,
+				print_hide=1,
+				description="Sales channel (e.g., web, tiktok, pos)",
 			),
 		],
 		"Ecommerce Integration Log": [

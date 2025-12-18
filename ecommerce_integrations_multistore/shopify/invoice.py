@@ -8,7 +8,9 @@ from ecommerce_integrations_multistore.shopify.constants import (
 	ORDER_ID_FIELD,
 	ORDER_NUMBER_FIELD,
 	ORDER_STATUS_FIELD,
+	PAYMENT_GATEWAY_FIELD,
 	SETTING_DOCTYPE,
+	SOURCE_NAME_FIELD,
 	STORE_DOCTYPE,
 	STORE_LINK_FIELD,
 )
@@ -321,25 +323,25 @@ def create_payment_entry_for_invoice(invoice, setting):
 			title="Payment Entry Debug - Status Check"
 		)
 		
-		# SIMPLIFIED: Skip Integration Log lookup for now - it's causing timeouts
-		# The log lookup was trying to find payment_gateway_names for bank account mapping,
-		# but the LIKE queries on large JSON fields are slow and causing the background job to hang.
-		# 
-		# For now, just create a minimal shopify_order dict and use store default bank account.
-		# Payment gateway mapping can be re-enabled later with a more efficient lookup.
+		# Get payment gateway and source from invoice fields (stored at creation time)
+		# This avoids slow Integration Log lookups
+		payment_gateway = invoice.get(PAYMENT_GATEWAY_FIELD) or ""
+		source_name = invoice.get(SOURCE_NAME_FIELD) or ""
 		
 		frappe.log_error(
-			message=f"Invoice {invoice.name}: Creating minimal shopify_order (skipping slow log lookup)",
-			title="Payment Entry Debug - Fast Path"
+			message=f"Invoice {invoice.name}: payment_gateway='{payment_gateway}', source_name='{source_name}'",
+			title="Payment Entry Debug - Gateway Info"
 		)
 		
-		# Create minimal dict - will use store default bank account
+		# Build shopify_order dict with gateway info for bank account mapping
 		shopify_order = {
 			"id": order_id,
 			"name": invoice.get(ORDER_NUMBER_FIELD),
 			"financial_status": financial_status,
 			"created_at": invoice.posting_date,
-			# No payment_gateway_names - will fall through to store default
+			"payment_gateway_names": [payment_gateway] if payment_gateway else [],
+			"gateway": payment_gateway,
+			"source_name": source_name,
 		}
 		
 		# Check if order is paid (case-insensitive comparison)
