@@ -357,8 +357,11 @@ def create_payment_entry_for_invoice(invoice, setting):
 		if order_data:
 			try:
 				shopify_order = json.loads(order_data)
-				# Update financial_status from the full order data if available
-				financial_status = shopify_order.get("financial_status") or financial_status
+				# NOTE: Do NOT update financial_status from log data!
+				# The Integration Log may contain stale data (e.g., "authorized" from orders/create)
+				# while the invoice's shopify_order_status field has been updated to "paid"
+				# by the orders/paid webhook. The invoice field is the authoritative source.
+				# We only need the log data for payment_gateway_names (bank account mapping).
 			except:
 				pass
 		
@@ -388,8 +391,10 @@ def create_payment_entry_for_invoice(invoice, setting):
 		# Shopify uses lowercase "paid" but ERPNext UI might display differently
 		financial_status_lower = (financial_status or "").lower().strip()
 		
+		# Log the final status being used (should match invoice field, not log data)
+		log_status = shopify_order.get("financial_status") if shopify_order else None
 		frappe.log_error(
-			message=f"Invoice {invoice.name}: financial_status='{financial_status}', normalized='{financial_status_lower}'",
+			message=f"Invoice {invoice.name}: using invoice status='{financial_status}' (normalized='{financial_status_lower}'), log had='{log_status}'",
 			title="Payment Entry Debug - Final Status"
 		)
 		
