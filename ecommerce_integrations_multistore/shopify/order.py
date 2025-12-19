@@ -2182,17 +2182,23 @@ def resync_invoice_items(invoice_name):
 		
 		setting = frappe.get_doc(STORE_DOCTYPE, store_name)
 		
-		# Fetch order from Shopify
+		# Fetch order from Shopify using decorated function
 		order_id = invoice.get(ORDER_ID_FIELD)
 		
-		with temp_shopify_session(setting):
-			try:
-				shopify_order = Order.find(order_id)
-				if not shopify_order:
-					return {"status": "error", "message": f"Order {order_id} not found in Shopify"}
-				shopify_order = shopify_order.to_dict()
-			except Exception as e:
-				return {"status": "error", "message": f"Failed to fetch order from Shopify: {str(e)}"}
+		@temp_shopify_session
+		def fetch_shopify_order(order_id, store_name=None):
+			"""Fetch order from Shopify API."""
+			order = Order.find(order_id)
+			if order:
+				return order.to_dict()
+			return None
+		
+		try:
+			shopify_order = fetch_shopify_order(order_id, store_name=store_name)
+			if not shopify_order:
+				return {"status": "error", "message": f"Order {order_id} not found in Shopify"}
+		except Exception as e:
+			return {"status": "error", "message": f"Failed to fetch order from Shopify: {str(e)}"}
 		
 		# Get items from Shopify order
 		items = get_order_items(
