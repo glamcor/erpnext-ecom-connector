@@ -15,6 +15,7 @@ from ecommerce_integrations_multistore.shopify.constants import (
 	ORDER_ITEM_DISCOUNT_FIELD,
 	ORDER_NUMBER_FIELD,
 	ORDER_STATUS_FIELD,
+	PAYMENT_CAPTURE_DATE_FIELD,
 	PAYMENT_GATEWAY_FIELD,
 	SETTING_DOCTYPE,
 	SOURCE_NAME_FIELD,
@@ -1009,6 +1010,14 @@ def create_sales_invoice(shopify_order, setting, company=None):
 		payment_gateway = gateway_names[0] if gateway_names else shopify_order.get("gateway", "")
 		source_name = shopify_order.get("source_name", "")
 		
+		# Get order date for posting (when order was placed)
+		order_date = getdate(shopify_order.get("created_at")) or nowdate()
+		
+		# Get payment capture date (when money was actually captured)
+		# This is important for orders with delayed capture (authorize then capture)
+		from ecommerce_integrations_multistore.shopify.invoice import get_payment_capture_date
+		capture_date = get_payment_capture_date(shopify_order)
+		
 		si_dict = {
 			"doctype": "Sales Invoice",
 			"naming_series": setting.sales_invoice_series or "SI-Shopify-",
@@ -1017,11 +1026,13 @@ def create_sales_invoice(shopify_order, setting, company=None):
 			ORDER_STATUS_FIELD: shopify_order.get("financial_status"),
 			PAYMENT_GATEWAY_FIELD: payment_gateway,  # Store payment gateway for bank account mapping
 			SOURCE_NAME_FIELD: source_name,  # Store sales channel for channel mapping
+			PAYMENT_CAPTURE_DATE_FIELD: capture_date,  # Store capture date for payment entry
 			"customer": customer,
 			"customer_address": billing_address,
 			"shipping_address_name": shipping_address,
-			"posting_date": getdate(shopify_order.get("created_at")) or nowdate(),
-			"due_date": getdate(shopify_order.get("created_at")) or nowdate(),
+			"set_posting_time": 1,  # CRITICAL: Allow manual posting date (not today's date)
+			"posting_date": order_date,
+			"due_date": order_date,
 			"company": setting.company,
 			"currency": currency or "USD",
 			"price_list_currency": currency or "USD",  # Add price list currency

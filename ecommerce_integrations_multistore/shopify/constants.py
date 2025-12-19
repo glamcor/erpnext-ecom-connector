@@ -38,6 +38,7 @@ ORDER_NUMBER_FIELD = "shopify_order_number"
 ORDER_STATUS_FIELD = "shopify_order_status"
 PAYMENT_GATEWAY_FIELD = "shopify_payment_gateway"  # Payment gateway used (e.g., shopify_payments, paypal)
 SOURCE_NAME_FIELD = "shopify_source_name"  # Sales channel (e.g., web, tiktok, pos)
+PAYMENT_CAPTURE_DATE_FIELD = "shopify_payment_capture_date"  # Date when payment was captured (for accurate accounting)
 FULLFILLMENT_ID_FIELD = "shopify_fulfillment_id"
 SUPPLIER_ID_FIELD = "shopify_supplier_id"
 ADDRESS_ID_FIELD = "shopify_address_id"

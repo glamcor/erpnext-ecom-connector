@@ -23,6 +23,7 @@ from ecommerce_integrations_multistore.shopify.constants import (
 	ORDER_ITEM_DISCOUNT_FIELD,
 	ORDER_NUMBER_FIELD,
 	ORDER_STATUS_FIELD,
+	PAYMENT_CAPTURE_DATE_FIELD,
 	PAYMENT_GATEWAY_FIELD,
 	SOURCE_NAME_FIELD,
 	STORE_LINK_FIELD,
@@ -323,6 +324,15 @@ def setup_custom_fields():
 				read_only=1,
 				print_hide=1,
 				description="Sales channel (e.g., web, tiktok, pos)",
+			),
+			dict(
+				fieldname=PAYMENT_CAPTURE_DATE_FIELD,
+				label="Shopify Payment Capture Date",
+				fieldtype="Date",
+				insert_after=SOURCE_NAME_FIELD,
+				read_only=1,
+				print_hide=1,
+				description="Date when payment was captured (for accurate payment entry posting)",
 			),
 		],
 		"Ecommerce Integration Log": [

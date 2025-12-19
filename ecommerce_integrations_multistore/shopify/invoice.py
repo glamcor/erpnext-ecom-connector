@@ -2,12 +2,13 @@ import json
 
 import frappe
 from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
-from frappe.utils import cint, cstr, getdate, nowdate
+from frappe.utils import cint, cstr, getdate, nowdate, get_datetime
 
 from ecommerce_integrations_multistore.shopify.constants import (
 	ORDER_ID_FIELD,
 	ORDER_NUMBER_FIELD,
 	ORDER_STATUS_FIELD,
+	PAYMENT_CAPTURE_DATE_FIELD,
 	PAYMENT_GATEWAY_FIELD,
 	SETTING_DOCTYPE,
 	SOURCE_NAME_FIELD,
@@ -15,6 +16,49 @@ from ecommerce_integrations_multistore.shopify.constants import (
 	STORE_LINK_FIELD,
 )
 from ecommerce_integrations_multistore.shopify.utils import create_shopify_log
+
+
+def get_payment_capture_date(shopify_order):
+	"""Extract the payment capture date from Shopify order transactions.
+	
+	Shopify orders have a transactions array with entries like:
+	- kind: "authorization" (when card is authorized)
+	- kind: "capture" (when payment is actually captured)
+	- kind: "sale" (for immediate capture like PayPal)
+	
+	For accurate accounting, we want the date when money was actually captured.
+	
+	Args:
+		shopify_order: Dict with Shopify order data including transactions
+		
+	Returns:
+		date: The capture date, or order created_at date as fallback
+	"""
+	transactions = shopify_order.get("transactions", [])
+	
+	# Look for capture or sale transaction (actual payment)
+	for txn in transactions:
+		kind = (txn.get("kind") or "").lower()
+		status = (txn.get("status") or "").lower()
+		
+		# Only consider successful captures/sales
+		if kind in ("capture", "sale") and status == "success":
+			txn_date = txn.get("created_at")
+			if txn_date:
+				dt = get_datetime(txn_date)
+				if dt:
+					# Strip timezone for ERPNext compatibility
+					return dt.replace(tzinfo=None).date()
+	
+	# Fallback to order created_at date
+	created_at = shopify_order.get("created_at")
+	if created_at:
+		dt = get_datetime(created_at)
+		if dt:
+			return dt.replace(tzinfo=None).date()
+	
+	# Final fallback to today
+	return nowdate()
 
 
 def prepare_sales_invoice(payload, request_id=None, store_name=None, retry_count=0):
@@ -471,7 +515,20 @@ def create_payment_entry_for_invoice(invoice, setting):
 		
 		pe = get_payment_entry("Sales Invoice", invoice.name, bank_account=cash_bank_account)
 		pe.reference_no = shopify_order.get("name")  # Shopify order number
-		pe.reference_date = getdate(shopify_order.get("created_at"))
+		
+		# Use payment capture date for accurate accounting
+		# This is the date when money was actually captured, not when order was placed
+		# For Friday order / Saturday capture / Monday processing scenario:
+		# - Invoice posting_date = Friday (when order was placed)
+		# - Payment posting_date = Saturday (when payment was captured)
+		capture_date = invoice.get(PAYMENT_CAPTURE_DATE_FIELD)
+		if capture_date:
+			pe.posting_date = capture_date
+			pe.reference_date = capture_date
+		else:
+			# Fallback to invoice posting date if no capture date stored
+			pe.posting_date = invoice.posting_date
+			pe.reference_date = invoice.posting_date
 		
 		# Set cost center if available
 		if cost_center:
@@ -608,8 +665,13 @@ def make_payament_entry_against_sales_invoice(doc, setting, posting_date=None, s
 	payment_entry = get_payment_entry(doc.doctype, doc.name, bank_account=cash_bank_account)
 	payment_entry.flags.ignore_mandatory = True
 	payment_entry.reference_no = doc.name
-	payment_entry.posting_date = posting_date or nowdate()
-	payment_entry.reference_date = posting_date or nowdate()
+	
+	# Use payment capture date for accurate accounting if available
+	# Priority: capture date from invoice > passed posting_date > today
+	capture_date = doc.get(PAYMENT_CAPTURE_DATE_FIELD)
+	effective_posting_date = capture_date or posting_date or nowdate()
+	payment_entry.posting_date = effective_posting_date
+	payment_entry.reference_date = effective_posting_date
 	
 	# Add remarks showing which tier was used
 	payment_entry.remarks = f"Auto-created from Shopify - Account from {account_source}"
