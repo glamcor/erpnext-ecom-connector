@@ -1487,7 +1487,7 @@ def consolidate_order_taxes(taxes):
 		if tax.get("item_wise_tax_detail"):
 			tax_account_wise_data[account_head]["item_wise_tax_detail"].update(tax["item_wise_tax_detail"])
 
-	return tax_account_wise_data.values()
+	return list(tax_account_wise_data.values())
 
 
 def get_tax_account_head(tax, charge_type: Literal["shipping", "sales_tax"] | None = None, setting=None):
@@ -2230,21 +2230,11 @@ def resync_invoice_items(invoice_name):
 			for item in invoice.items:
 				item.cost_center = cost_center
 		
-		# Re-calculate taxes if needed
+		# Re-calculate taxes (get_order_taxes already includes shipping lines)
 		taxes = get_order_taxes(
 			shopify_order, 
 			setting, 
 			items, 
-			store_name=store_name,
-			channel_settings=channel_settings
-		)
-		
-		taxes = update_taxes_with_shipping_lines(
-			taxes,
-			shopify_order.get("shipping_lines"),
-			setting,
-			items,
-			taxes_inclusive=shopify_order.get("taxes_included"),
 			store_name=store_name,
 			channel_settings=channel_settings
 		)
