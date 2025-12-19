@@ -41,6 +41,7 @@ doctype_js = {
 	"Sales Invoice": [
 		# "public/js/unicommerce/sales_invoice.js",  # DISABLED: Unicommerce not used
 		"public/js/common/ecommerce_transactions.js",
+		"public/js/shopify/sales_invoice.js",  # Re-sync items button for hollow invoices
 	],
 	# "Item": "public/js/unicommerce/item.js",  # DISABLED: Unicommerce not used
 	# "Stock Entry": "public/js/unicommerce/stock_entry.js",  # DISABLED: Unicommerce not used
@@ -161,6 +162,8 @@ scheduler_events = {
 		"ecommerce_integrations_multistore.shopify.orchestrator.orchestrate_order_sync",
 		# Legacy: backward compatible singleton order sync
 		"ecommerce_integrations_multistore.shopify.order.sync_old_orders",
+		# Fix hollow invoices (invoices created when items didn't exist in ERPNext)
+		"ecommerce_integrations_multistore.shopify.order.fix_hollow_invoices",
 		"ecommerce_integrations_multistore.amazon.doctype.amazon_sp_api_settings.amazon_sp_api_settings.schedule_get_order_details",
 	],
 	"hourly_long": [

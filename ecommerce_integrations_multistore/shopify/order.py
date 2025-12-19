@@ -2148,3 +2148,213 @@ def _fetch_old_orders(from_time, to_time):
 			# Using generator instead of fetching all at once is better for
 			# avoiding rate limits and reducing resource usage.
 			yield order.to_dict()
+
+
+@frappe.whitelist()
+def resync_invoice_items(invoice_name):
+	"""Re-sync items from Shopify for a hollow Sales Invoice.
+	
+	This is used when an invoice was created but items couldn't be mapped
+	because they didn't exist in ERPNext at the time. After adding the items,
+	this function can be called to re-fetch and add them to the invoice.
+	
+	Args:
+		invoice_name: Sales Invoice name
+		
+	Returns:
+		dict: Result with status and message
+	"""
+	try:
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+		
+		# Verify this is a Shopify invoice
+		if not invoice.get(ORDER_ID_FIELD):
+			return {"status": "error", "message": "This is not a Shopify invoice"}
+		
+		# Verify invoice is still in draft
+		if invoice.docstatus != 0:
+			return {"status": "error", "message": "Invoice is not in draft status. Cannot modify."}
+		
+		# Get store settings
+		store_name = invoice.get(STORE_LINK_FIELD)
+		if not store_name:
+			return {"status": "error", "message": "No Shopify Store linked to this invoice"}
+		
+		setting = frappe.get_doc(STORE_DOCTYPE, store_name)
+		
+		# Fetch order from Shopify
+		order_id = invoice.get(ORDER_ID_FIELD)
+		
+		with temp_shopify_session(setting):
+			try:
+				shopify_order = Order.find(order_id)
+				if not shopify_order:
+					return {"status": "error", "message": f"Order {order_id} not found in Shopify"}
+				shopify_order = shopify_order.to_dict()
+			except Exception as e:
+				return {"status": "error", "message": f"Failed to fetch order from Shopify: {str(e)}"}
+		
+		# Get items from Shopify order
+		items = get_order_items(
+			shopify_order.get("line_items"),
+			setting,
+			getdate(shopify_order.get("created_at")),
+			taxes_inclusive=shopify_order.get("taxes_included"),
+			store_name=store_name,
+			shopify_order=shopify_order,
+		)
+		
+		if not items:
+			return {
+				"status": "warning", 
+				"message": "Still unable to map items. Please ensure all SKUs exist in ERPNext."
+			}
+		
+		# Get channel settings for cost center
+		channel_settings = _get_channel_settings(shopify_order, setting)
+		cost_center = channel_settings.get("cost_center") if channel_settings else None
+		
+		# Clear existing items (if any) and add new ones
+		invoice.items = []
+		for item in items:
+			invoice.append("items", item)
+		
+		# Apply cost center to items
+		if cost_center:
+			for item in invoice.items:
+				item.cost_center = cost_center
+		
+		# Re-calculate taxes if needed
+		taxes = get_order_taxes(
+			shopify_order, 
+			setting, 
+			items, 
+			store_name=store_name,
+			channel_settings=channel_settings
+		)
+		
+		taxes = update_taxes_with_shipping_lines(
+			taxes,
+			shopify_order.get("shipping_lines"),
+			setting,
+			items,
+			taxes_inclusive=shopify_order.get("taxes_included"),
+			store_name=store_name,
+			channel_settings=channel_settings
+		)
+		
+		# Update taxes
+		invoice.taxes = []
+		for tax in taxes:
+			invoice.append("taxes", tax)
+		
+		# Apply cost center to taxes
+		if cost_center:
+			for tax in invoice.taxes:
+				tax.cost_center = cost_center
+		
+		# Save the invoice
+		invoice.flags.ignore_validate = True
+		invoice.flags.ignore_mandatory = True
+		invoice.save(ignore_permissions=True)
+		
+		# Add comment
+		invoice.add_comment(
+			comment_type="Info",
+			text=f"Items re-synced from Shopify. {len(items)} item(s) added."
+		)
+		
+		frappe.db.commit()
+		
+		return {
+			"status": "success", 
+			"message": f"Successfully synced {len(items)} item(s) from Shopify",
+			"items_count": len(items)
+		}
+		
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to resync items for {invoice_name}: {str(e)}\n{frappe.get_traceback()}",
+			title="Resync Invoice Items Error"
+		)
+		return {"status": "error", "message": str(e)}
+
+
+def fix_hollow_invoices(store_name=None):
+	"""Find and fix Sales Invoices with no items (hollow invoices).
+	
+	This is called by the scheduled job to automatically retry item mapping
+	for invoices that were created when items didn't exist in ERPNext.
+	
+	Args:
+		store_name: Optional - limit to specific store
+	"""
+	filters = {
+		"docstatus": 0,  # Draft only
+		ORDER_ID_FIELD: ["is", "set"],  # Has Shopify order ID
+	}
+	
+	if store_name:
+		filters[STORE_LINK_FIELD] = store_name
+	
+	# Find invoices with no items
+	hollow_invoices = frappe.db.sql("""
+		SELECT si.name, si.shopify_order_id, si.shopify_store
+		FROM `tabSales Invoice` si
+		LEFT JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
+		WHERE si.docstatus = 0
+		AND si.shopify_order_id IS NOT NULL
+		AND si.shopify_order_id != ''
+		{store_filter}
+		GROUP BY si.name
+		HAVING COUNT(sii.name) = 0
+	""".format(
+		store_filter=f"AND si.shopify_store = '{store_name}'" if store_name else ""
+	), as_dict=True)
+	
+	if not hollow_invoices:
+		frappe.log_error(
+			message="No hollow invoices found",
+			title="Hollow Invoice Fix - No Action"
+		)
+		return
+	
+	frappe.log_error(
+		message=f"Found {len(hollow_invoices)} hollow invoices to process",
+		title="Hollow Invoice Fix - Starting"
+	)
+	
+	fixed = 0
+	still_hollow = 0
+	errors = 0
+	
+	for inv in hollow_invoices:
+		try:
+			result = resync_invoice_items(inv.name)
+			
+			if result.get("status") == "success":
+				fixed += 1
+				frappe.log_error(
+					message=f"Fixed {inv.name}: {result.get('message')}",
+					title="Hollow Invoice Fixed"
+				)
+			elif result.get("status") == "warning":
+				still_hollow += 1
+				# Don't log every time - items still don't exist
+			else:
+				errors += 1
+				frappe.log_error(
+					message=f"Error fixing {inv.name}: {result.get('message')}",
+					title="Hollow Invoice Fix Error"
+				)
+		except Exception as e:
+			errors += 1
+			frappe.log_error(
+				message=f"Exception fixing {inv.name}: {str(e)}",
+				title="Hollow Invoice Fix Exception"
+			)
+	
+	frappe.log_error(
+		message=f"Hollow invoice fix complete. Fixed: {fixed}, Still hollow: {still_hollow}, Errors: {errors}",
+		title="Hollow Invoice Fix - Complete"
+	)
