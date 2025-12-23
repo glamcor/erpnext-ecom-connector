@@ -526,44 +526,47 @@ def create_payment_entry_for_invoice(invoice, setting):
 			)
 			return
 		
-		# Create payment entry
-		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+		# Create payment entry manually instead of using get_payment_entry
+		# ERPNext's get_payment_entry has a bug where it says "already fully paid"
+		# even when outstanding_amount > 0, especially after Delivery Note creation
 		
-		try:
-			pe = get_payment_entry("Sales Invoice", invoice.name, bank_account=cash_bank_account)
-		except Exception as pe_error:
-			error_msg = str(pe_error)
-			if "already been fully paid" in error_msg or "outstanding amount" in error_msg.lower():
-				frappe.log_error(
-					message=f"Invoice {invoice.name}: get_payment_entry failed with '{error_msg}'. Outstanding was {invoice.outstanding_amount}. This may be a timing issue.",
-					title="Payment Entry Skipped - ERPNext Says Paid"
-				)
-				return
-			raise  # Re-raise other errors
-		pe.reference_no = shopify_order.get("name")  # Shopify order number
-		
-		# Use payment capture date for accurate accounting
-		# This is the date when money was actually captured, not when order was placed
-		# For Friday order / Saturday capture / Monday processing scenario:
-		# - Invoice posting_date = Friday (when order was placed)
-		# - Payment posting_date = Saturday (when payment was captured)
+		# Get payment capture date for accurate accounting
 		capture_date = invoice.get(PAYMENT_CAPTURE_DATE_FIELD)
-		if capture_date:
-			pe.posting_date = capture_date
-			pe.reference_date = capture_date
-		else:
-			# Fallback to invoice posting date if no capture date stored
-			pe.posting_date = invoice.posting_date
-			pe.reference_date = invoice.posting_date
+		posting_date = capture_date or invoice.posting_date
+		
+		# Get company's default receivable account
+		company = invoice.company
+		debit_to = invoice.debit_to  # The receivable account from the invoice
+		
+		# Build payment gateway display name
+		gateway_display = gateway.replace("_", " ").title() if gateway else "Unknown"
+		
+		pe = frappe.get_doc({
+			"doctype": "Payment Entry",
+			"payment_type": "Receive",
+			"party_type": "Customer",
+			"party": invoice.customer,
+			"company": company,
+			"posting_date": posting_date,
+			"paid_from": debit_to,  # Receivable account
+			"paid_to": cash_bank_account,  # Bank account
+			"paid_amount": invoice.outstanding_amount,
+			"received_amount": invoice.outstanding_amount,
+			"reference_no": shopify_order.get("name"),  # Shopify order number
+			"reference_date": posting_date,
+			"remarks": f"Payment via {gateway_display} - Shopify Order {shopify_order.get('name')} - Account from {account_source}",
+			"references": [{
+				"reference_doctype": "Sales Invoice",
+				"reference_name": invoice.name,
+				"allocated_amount": invoice.outstanding_amount,
+			}]
+		})
 		
 		# Set cost center if available
 		if cost_center:
 			pe.cost_center = cost_center
 		
-		# Add payment gateway info to remarks - include account source for audit trail
-		gateway_display = gateway.replace("_", " ").title() if gateway else "Unknown"
-		pe.remarks = f"Payment via {gateway_display} - Shopify Order {shopify_order.get('name')} - Account from {account_source}"
-		
+		pe.flags.ignore_mandatory = True
 		pe.save(ignore_permissions=True)
 		pe.submit()
 		
@@ -649,7 +652,6 @@ def make_payament_entry_against_sales_invoice(doc, setting, posting_date=None, s
 	    posting_date: Optional posting date
 	    shopify_order: Optional Shopify order data for gateway/channel lookup
 	"""
-	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 	from ecommerce_integrations_multistore.shopify.order import (
 		_get_channel_cost_center,
 		_get_channel_bank_account_legacy,
@@ -659,6 +661,8 @@ def make_payament_entry_against_sales_invoice(doc, setting, posting_date=None, s
 	# 3-tier priority for bank account selection (same as create_payment_entry_for_invoice)
 	cash_bank_account = None
 	account_source = None
+	gateway = ""
+	source_name = ""
 	
 	if shopify_order:
 		gateway_names = shopify_order.get("payment_gateway_names", [])
@@ -688,20 +692,46 @@ def make_payament_entry_against_sales_invoice(doc, setting, posting_date=None, s
 		)
 		return
 
-	payment_entry = get_payment_entry(doc.doctype, doc.name, bank_account=cash_bank_account)
-	payment_entry.flags.ignore_mandatory = True
-	payment_entry.reference_no = doc.name
+	# Check outstanding amount
+	doc.reload()
+	if doc.outstanding_amount <= 0:
+		frappe.log_error(
+			message=f"Invoice {doc.name} has no outstanding amount ({doc.outstanding_amount}). Skipping payment.",
+			title="Payment Entry Skipped - No Outstanding"
+		)
+		return
 	
 	# Use payment capture date for accurate accounting if available
 	# Priority: capture date from invoice > passed posting_date > today
 	capture_date = doc.get(PAYMENT_CAPTURE_DATE_FIELD)
 	effective_posting_date = capture_date or posting_date or nowdate()
-	payment_entry.posting_date = effective_posting_date
-	payment_entry.reference_date = effective_posting_date
 	
-	# Add remarks showing which tier was used
-	payment_entry.remarks = f"Auto-created from Shopify - Account from {account_source}"
+	# Build gateway display name
+	gateway_display = gateway.replace("_", " ").title() if gateway else "Unknown"
 	
+	# Create payment entry manually (bypassing get_payment_entry which has bugs)
+	payment_entry = frappe.get_doc({
+		"doctype": "Payment Entry",
+		"payment_type": "Receive",
+		"party_type": "Customer",
+		"party": doc.customer,
+		"company": doc.company,
+		"posting_date": effective_posting_date,
+		"paid_from": doc.debit_to,  # Receivable account from invoice
+		"paid_to": cash_bank_account,  # Bank account
+		"paid_amount": doc.outstanding_amount,
+		"received_amount": doc.outstanding_amount,
+		"reference_no": doc.name,
+		"reference_date": effective_posting_date,
+		"remarks": f"Auto-created from Shopify - Account from {account_source}",
+		"references": [{
+			"reference_doctype": "Sales Invoice",
+			"reference_name": doc.name,
+			"allocated_amount": doc.outstanding_amount,
+		}]
+	})
+	
+	payment_entry.flags.ignore_mandatory = True
 	payment_entry.insert(ignore_permissions=True)
 	payment_entry.submit()
 	
