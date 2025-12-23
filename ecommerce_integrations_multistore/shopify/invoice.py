@@ -510,6 +510,16 @@ def create_payment_entry_for_invoice(invoice, setting):
 			)
 			return
 		
+		# Skip if invoice has no outstanding amount (already paid via other means)
+		# Reload invoice to get fresh outstanding_amount
+		invoice.reload()
+		if invoice.outstanding_amount <= 0:
+			frappe.log_error(
+				message=f"Invoice {invoice.name} has no outstanding amount ({invoice.outstanding_amount}). May have been paid via journal entry or credit note.",
+				title="Payment Entry Skipped - No Outstanding"
+			)
+			return
+		
 		# Create payment entry
 		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 		
@@ -683,6 +693,67 @@ def make_payament_entry_against_sales_invoice(doc, setting, posting_date=None, s
 		message=f"Payment Entry {payment_entry.name} created for {doc.name} using {account_source}",
 		title="Shopify Payment Entry Created"
 	)
+
+
+@frappe.whitelist()
+def check_invoice_status(invoice_name):
+	"""Check if a submitted Shopify invoice is missing DN or Payment.
+	
+	Args:
+		invoice_name: Sales Invoice name
+		
+	Returns:
+		dict: Status flags for missing_dn and missing_payment
+	"""
+	try:
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+		
+		# Not a Shopify invoice
+		if not invoice.get(ORDER_ID_FIELD):
+			return {"missing_dn": False, "missing_payment": False}
+		
+		# Not submitted
+		if invoice.docstatus != 1:
+			return {"missing_dn": False, "missing_payment": False}
+		
+		order_id = invoice.get(ORDER_ID_FIELD)
+		
+		# Check for missing DN
+		dn_exists = frappe.db.exists(
+			"Delivery Note",
+			{ORDER_ID_FIELD: order_id, "docstatus": ["!=", 2]}
+		)
+		missing_dn = not dn_exists
+		
+		# Check for missing Payment
+		missing_payment = False
+		financial_status = (invoice.get(ORDER_STATUS_FIELD) or "").lower().strip()
+		
+		if financial_status == "paid" and invoice.outstanding_amount > 0:
+			# Check if payment entry exists
+			pe_exists = frappe.db.sql("""
+				SELECT 1 FROM `tabPayment Entry Reference`
+				WHERE reference_doctype = 'Sales Invoice'
+				AND reference_name = %s
+				AND docstatus != 2
+				LIMIT 1
+			""", (invoice.name,))
+			
+			missing_payment = not pe_exists
+		
+		return {
+			"missing_dn": missing_dn,
+			"missing_payment": missing_payment,
+			"outstanding_amount": invoice.outstanding_amount,
+			"financial_status": financial_status
+		}
+		
+	except Exception as e:
+		frappe.log_error(
+			message=f"Error checking invoice status for {invoice_name}: {str(e)}",
+			title="Check Invoice Status Error"
+		)
+		return {"missing_dn": False, "missing_payment": False, "error": str(e)}
 
 
 @frappe.whitelist()
