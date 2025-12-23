@@ -513,6 +513,12 @@ def create_payment_entry_for_invoice(invoice, setting):
 		# Skip if invoice has no outstanding amount (already paid via other means)
 		# Reload invoice to get fresh outstanding_amount
 		invoice.reload()
+		
+		frappe.log_error(
+			message=f"Invoice {invoice.name}: outstanding_amount={invoice.outstanding_amount}, grand_total={invoice.grand_total}, status={invoice.status}",
+			title="Payment Entry Debug - Outstanding Check"
+		)
+		
 		if invoice.outstanding_amount <= 0:
 			frappe.log_error(
 				message=f"Invoice {invoice.name} has no outstanding amount ({invoice.outstanding_amount}). May have been paid via journal entry or credit note.",
@@ -523,7 +529,17 @@ def create_payment_entry_for_invoice(invoice, setting):
 		# Create payment entry
 		from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 		
-		pe = get_payment_entry("Sales Invoice", invoice.name, bank_account=cash_bank_account)
+		try:
+			pe = get_payment_entry("Sales Invoice", invoice.name, bank_account=cash_bank_account)
+		except Exception as pe_error:
+			error_msg = str(pe_error)
+			if "already been fully paid" in error_msg or "outstanding amount" in error_msg.lower():
+				frappe.log_error(
+					message=f"Invoice {invoice.name}: get_payment_entry failed with '{error_msg}'. Outstanding was {invoice.outstanding_amount}. This may be a timing issue.",
+					title="Payment Entry Skipped - ERPNext Says Paid"
+				)
+				return
+			raise  # Re-raise other errors
 		pe.reference_no = shopify_order.get("name")  # Shopify order number
 		
 		# Use payment capture date for accurate accounting
