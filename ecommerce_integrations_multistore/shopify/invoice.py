@@ -683,3 +683,314 @@ def make_payament_entry_against_sales_invoice(doc, setting, posting_date=None, s
 		message=f"Payment Entry {payment_entry.name} created for {doc.name} using {account_source}",
 		title="Shopify Payment Entry Created"
 	)
+
+
+@frappe.whitelist()
+def create_missing_delivery_note(invoice_name):
+	"""Create missing Delivery Note for a submitted Shopify invoice.
+	
+	This is used to repair invoices that were submitted but the DN creation failed.
+	
+	Args:
+		invoice_name: Sales Invoice name
+		
+	Returns:
+		dict: Result with status and message
+	"""
+	try:
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+		
+		# Verify this is a submitted Shopify invoice
+		if not invoice.get(ORDER_ID_FIELD):
+			return {"status": "error", "message": "This is not a Shopify invoice"}
+		
+		if invoice.docstatus != 1:
+			return {"status": "error", "message": "Invoice must be submitted"}
+		
+		# Check if DN already exists
+		existing_dn = frappe.db.get_value(
+			"Delivery Note",
+			{ORDER_ID_FIELD: invoice.get(ORDER_ID_FIELD), "docstatus": ["!=", 2]},
+			"name"
+		)
+		
+		if existing_dn:
+			return {"status": "error", "message": f"Delivery Note {existing_dn} already exists"}
+		
+		# Get store settings
+		store_name = invoice.get(STORE_LINK_FIELD)
+		if not store_name:
+			return {"status": "error", "message": "No Shopify Store linked to this invoice"}
+		
+		setting = frappe.get_doc(STORE_DOCTYPE, store_name)
+		
+		# Create delivery note
+		from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_delivery_note
+		
+		dn = make_delivery_note(invoice.name)
+		
+		# Copy Shopify fields
+		dn.set(ORDER_ID_FIELD, invoice.get(ORDER_ID_FIELD))
+		dn.set(ORDER_NUMBER_FIELD, invoice.get(ORDER_NUMBER_FIELD))
+		dn.set(STORE_LINK_FIELD, store_name)
+		
+		dn.naming_series = setting.delivery_note_series or "DN-Shopify-"
+		dn.flags.ignore_mandatory = True
+		
+		# Save and submit
+		dn.save(ignore_permissions=True)
+		dn.submit()
+		
+		# Add comment to invoice
+		invoice.add_comment(
+			comment_type="Info",
+			text=f"Delivery Note {dn.name} created manually (repair)"
+		)
+		
+		# Send to ShipStation if enabled
+		if cint(setting.enable_shipstation):
+			try:
+				from ecommerce_integrations_multistore.shopify.shipstation import send_to_shipstation
+				send_to_shipstation(dn, setting)
+				frappe.db.commit()
+				return {
+					"status": "success",
+					"message": f"Delivery Note {dn.name} created and sent to ShipStation",
+					"delivery_note": dn.name
+				}
+			except Exception as e:
+				frappe.log_error(
+					message=f"ShipStation send failed for {dn.name}: {str(e)}",
+					title="ShipStation Error"
+				)
+				frappe.db.commit()
+				return {
+					"status": "success",
+					"message": f"Delivery Note {dn.name} created (ShipStation send failed: {str(e)})",
+					"delivery_note": dn.name
+				}
+		
+		frappe.db.commit()
+		return {
+			"status": "success",
+			"message": f"Delivery Note {dn.name} created",
+			"delivery_note": dn.name
+		}
+		
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to create DN for {invoice_name}: {str(e)}\n{frappe.get_traceback()}",
+			title="Create Missing DN Error"
+		)
+		return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist()
+def create_missing_payment_entry(invoice_name):
+	"""Create missing Payment Entry for a submitted Shopify invoice.
+	
+	This is used to repair invoices that were submitted but the Payment creation failed.
+	
+	Args:
+		invoice_name: Sales Invoice name
+		
+	Returns:
+		dict: Result with status and message
+	"""
+	try:
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+		
+		# Verify this is a submitted Shopify invoice
+		if not invoice.get(ORDER_ID_FIELD):
+			return {"status": "error", "message": "This is not a Shopify invoice"}
+		
+		if invoice.docstatus != 1:
+			return {"status": "error", "message": "Invoice must be submitted"}
+		
+		# Check if payment already exists
+		existing_pe = frappe.db.sql("""
+			SELECT parent FROM `tabPayment Entry Reference`
+			WHERE reference_doctype = 'Sales Invoice'
+			AND reference_name = %s
+			AND docstatus != 2
+			LIMIT 1
+		""", (invoice.name,), as_dict=True)
+		
+		if existing_pe:
+			return {"status": "error", "message": f"Payment Entry {existing_pe[0].parent} already exists"}
+		
+		# Check if order is paid
+		financial_status = (invoice.get(ORDER_STATUS_FIELD) or "").lower().strip()
+		if financial_status != "paid":
+			return {"status": "error", "message": f"Order status is '{financial_status}', not 'paid'"}
+		
+		# Check outstanding amount
+		if invoice.outstanding_amount <= 0:
+			return {"status": "error", "message": "Invoice has no outstanding amount"}
+		
+		# Get store settings
+		store_name = invoice.get(STORE_LINK_FIELD)
+		if not store_name:
+			return {"status": "error", "message": "No Shopify Store linked to this invoice"}
+		
+		setting = frappe.get_doc(STORE_DOCTYPE, store_name)
+		
+		# Call the existing payment creation function
+		create_payment_entry_for_invoice(invoice, setting)
+		
+		frappe.db.commit()
+		
+		# Check if payment was created
+		new_pe = frappe.db.sql("""
+			SELECT parent FROM `tabPayment Entry Reference`
+			WHERE reference_doctype = 'Sales Invoice'
+			AND reference_name = %s
+			AND docstatus != 2
+			LIMIT 1
+		""", (invoice.name,), as_dict=True)
+		
+		if new_pe:
+			return {
+				"status": "success",
+				"message": f"Payment Entry {new_pe[0].parent} created",
+				"payment_entry": new_pe[0].parent
+			}
+		else:
+			return {"status": "error", "message": "Payment Entry creation failed - check Error Log"}
+		
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to create Payment for {invoice_name}: {str(e)}\n{frappe.get_traceback()}",
+			title="Create Missing Payment Error"
+		)
+		return {"status": "error", "message": str(e)}
+
+
+def repair_submitted_invoices(store_name=None, dry_run=True):
+	"""Find and repair submitted Shopify invoices missing DN or Payment.
+	
+	This can be run from bench console to fix invoices in bulk:
+	
+		from ecommerce_integrations_multistore.shopify.invoice import repair_submitted_invoices
+		repair_submitted_invoices(dry_run=False)
+	
+	Args:
+		store_name: Optional - limit to specific store
+		dry_run: If True, only report what would be done without making changes
+		
+	Returns:
+		dict: Summary of repairs made
+	"""
+	filters = {
+		"docstatus": 1,  # Submitted only
+		ORDER_ID_FIELD: ["is", "set"],
+	}
+	
+	if store_name:
+		filters[STORE_LINK_FIELD] = store_name
+	
+	# Find submitted Shopify invoices
+	invoices = frappe.get_all(
+		"Sales Invoice",
+		filters=filters,
+		fields=["name", ORDER_ID_FIELD, ORDER_STATUS_FIELD, STORE_LINK_FIELD, "outstanding_amount"]
+	)
+	
+	print(f"Found {len(invoices)} submitted Shopify invoices")
+	
+	missing_dn = []
+	missing_payment = []
+	
+	for inv in invoices:
+		# Check for missing DN
+		dn_exists = frappe.db.exists(
+			"Delivery Note",
+			{ORDER_ID_FIELD: inv.get(ORDER_ID_FIELD), "docstatus": ["!=", 2]}
+		)
+		
+		if not dn_exists:
+			missing_dn.append(inv.name)
+		
+		# Check for missing Payment (only if paid and has outstanding)
+		financial_status = (inv.get(ORDER_STATUS_FIELD) or "").lower().strip()
+		if financial_status == "paid" and inv.outstanding_amount > 0:
+			pe_exists = frappe.db.sql("""
+				SELECT 1 FROM `tabPayment Entry Reference`
+				WHERE reference_doctype = 'Sales Invoice'
+				AND reference_name = %s
+				AND docstatus != 2
+				LIMIT 1
+			""", (inv.name,))
+			
+			if not pe_exists:
+				missing_payment.append(inv.name)
+	
+	print(f"\nMissing Delivery Notes: {len(missing_dn)}")
+	print(f"Missing Payment Entries: {len(missing_payment)}")
+	
+	if dry_run:
+		print("\n[DRY RUN] No changes made. Run with dry_run=False to repair.")
+		if missing_dn:
+			print(f"\nInvoices needing DN: {missing_dn[:10]}{'...' if len(missing_dn) > 10 else ''}")
+		if missing_payment:
+			print(f"\nInvoices needing Payment: {missing_payment[:10]}{'...' if len(missing_payment) > 10 else ''}")
+		return {
+			"missing_dn": missing_dn,
+			"missing_payment": missing_payment,
+			"dry_run": True
+		}
+	
+	# Actually repair
+	dn_created = 0
+	dn_errors = []
+	pe_created = 0
+	pe_errors = []
+	
+	print("\nCreating missing Delivery Notes...")
+	for inv_name in missing_dn:
+		try:
+			result = create_missing_delivery_note(inv_name)
+			if result.get("status") == "success":
+				dn_created += 1
+				print(f"  ✓ {inv_name}: {result.get('delivery_note')}")
+			else:
+				dn_errors.append((inv_name, result.get("message")))
+				print(f"  ✗ {inv_name}: {result.get('message')}")
+		except Exception as e:
+			dn_errors.append((inv_name, str(e)))
+			print(f"  ✗ {inv_name}: {str(e)}")
+	
+	print("\nCreating missing Payment Entries...")
+	for inv_name in missing_payment:
+		try:
+			result = create_missing_payment_entry(inv_name)
+			if result.get("status") == "success":
+				pe_created += 1
+				print(f"  ✓ {inv_name}: {result.get('payment_entry')}")
+			else:
+				pe_errors.append((inv_name, result.get("message")))
+				print(f"  ✗ {inv_name}: {result.get('message')}")
+		except Exception as e:
+			pe_errors.append((inv_name, str(e)))
+			print(f"  ✗ {inv_name}: {str(e)}")
+	
+	print(f"\n=== REPAIR SUMMARY ===")
+	print(f"Delivery Notes created: {dn_created}/{len(missing_dn)}")
+	print(f"Payment Entries created: {pe_created}/{len(missing_payment)}")
+	
+	if dn_errors:
+		print(f"\nDN Errors ({len(dn_errors)}):")
+		for inv, err in dn_errors[:5]:
+			print(f"  {inv}: {err}")
+	
+	if pe_errors:
+		print(f"\nPayment Errors ({len(pe_errors)}):")
+		for inv, err in pe_errors[:5]:
+			print(f"  {inv}: {err}")
+	
+	return {
+		"dn_created": dn_created,
+		"dn_errors": dn_errors,
+		"pe_created": pe_created,
+		"pe_errors": pe_errors
+	}
