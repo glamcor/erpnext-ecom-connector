@@ -92,7 +92,24 @@ def create_delivery_note(shopify_order, setting, si, store_name=None):
 	if not cint(setting.sync_delivery_note):
 		return
 
+	# First check if ANY delivery note already exists for this order
+	# This catches DNs created by auto_create_delivery_note (which don't have fulfillment_id)
+	order_id = cstr(shopify_order.get("id"))
+	existing_dn_for_order = frappe.db.get_value(
+		"Delivery Note", 
+		{ORDER_ID_FIELD: order_id, "docstatus": ["!=", 2]},
+		"name"
+	)
+	
+	if existing_dn_for_order:
+		frappe.log_error(
+			message=f"Delivery Note {existing_dn_for_order} already exists for order {order_id}. Skipping fulfillment webhook.",
+			title="Fulfillment Webhook - DN Exists"
+		)
+		return
+
 	for fulfillment in shopify_order.get("fulfillments"):
+		# Also check by fulfillment ID for partial fulfillments
 		if (
 			not frappe.db.get_value("Delivery Note", {FULLFILLMENT_ID_FIELD: fulfillment.get("id")}, "name")
 			and si.docstatus == 1
