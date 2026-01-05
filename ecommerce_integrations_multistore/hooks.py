@@ -43,6 +43,9 @@ doctype_js = {
 		"public/js/common/ecommerce_transactions.js",
 		"public/js/shopify/sales_invoice.js",  # Re-sync items button for hollow invoices
 	],
+	"Delivery Note": [
+		"public/js/shopify/delivery_note.js",  # ShipStation tracking sync buttons
+	],
 	# "Item": "public/js/unicommerce/item.js",  # DISABLED: Unicommerce not used
 	# "Stock Entry": "public/js/unicommerce/stock_entry.js",  # DISABLED: Unicommerce not used
 	# "Pick List": "public/js/unicommerce/pick_list.js",  # DISABLED: Unicommerce not used

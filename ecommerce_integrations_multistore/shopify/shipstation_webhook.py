@@ -353,6 +353,239 @@ def handle_shipment_shipped(webhook_data):
 		raise
 
 
+@frappe.whitelist()
+def manually_sync_shipstation_tracking(delivery_note_name, tracking_number=None, carrier=None):
+	"""Manually sync tracking info from ShipStation to a Delivery Note.
+	
+	Use this when the automatic webhook sync failed.
+	
+	Args:
+		delivery_note_name: Name of the Delivery Note to update
+		tracking_number: Optional - tracking number (will fetch from ShipStation if not provided)
+		carrier: Optional - carrier name
+	
+	Returns:
+		dict: Result of the sync operation
+	"""
+	try:
+		if not frappe.db.exists("Delivery Note", delivery_note_name):
+			return {"success": False, "message": f"Delivery Note {delivery_note_name} not found"}
+		
+		dn = frappe.get_doc("Delivery Note", delivery_note_name)
+		
+		# If tracking info provided, use it directly
+		if tracking_number:
+			# Update the Delivery Note
+			if tracking_number:
+				dn.db_set("custom_shipstation_tracking_number", tracking_number, update_modified=False)
+			if carrier:
+				dn.db_set("custom_shipstation_carrier", carrier, update_modified=False)
+			
+			# Set workflow state to Shipped
+			dn.db_set("workflow_state", "Shipped", update_modified=False)
+			
+			# Add comment
+			dn.add_comment(
+				comment_type="Info",
+				text=f"Manual sync: Shipped via {carrier or 'carrier'}. Tracking: {tracking_number}"
+			)
+			
+			frappe.db.commit()
+			
+			return {
+				"success": True,
+				"message": f"Updated {delivery_note_name} with tracking {tracking_number}",
+				"tracking_number": tracking_number,
+				"carrier": carrier
+			}
+		
+		# No tracking provided - try to fetch from ShipStation
+		shipment_id = dn.get("custom_shipstation_shipment_id") or dn.get("shipstation_shipment_id")
+		
+		if not shipment_id:
+			return {
+				"success": False,
+				"message": f"No ShipStation shipment ID found on {delivery_note_name}. Please provide tracking_number manually."
+			}
+		
+		# Fetch from ShipStation API
+		store_name = dn.get("shopify_store")
+		if not store_name:
+			# Try to find any enabled store with ShipStation
+			stores = frappe.get_all(
+				"Shopify Store",
+				filters={"enabled": 1, "shipstation_enabled": 1},
+				limit=1
+			)
+			if stores:
+				store_name = stores[0].name
+		
+		if not store_name:
+			return {
+				"success": False,
+				"message": "No ShipStation-enabled store found. Please provide tracking_number manually."
+			}
+		
+		setting = frappe.get_doc("Shopify Store", store_name)
+		api_key = setting.get_password("shipstation_api_key")
+		
+		if not api_key:
+			return {
+				"success": False,
+				"message": f"No API key configured for store {store_name}. Please provide tracking_number manually."
+			}
+		
+		# Fetch shipment details from ShipStation
+		import requests
+		
+		# Try V2 API to get shipment details
+		headers = {
+			"API-Key": api_key,
+			"Accept": "application/json"
+		}
+		
+		# Try to get label info by shipment_id
+		labels_url = f"https://api.shipstation.com/v2/labels?shipment_id={shipment_id}"
+		
+		frappe.log_error(
+			message=f"Fetching ShipStation label data from: {labels_url}",
+			title="Manual Sync - Fetching"
+		)
+		
+		response = requests.get(labels_url, headers=headers, timeout=15)
+		
+		if response.status_code != 200:
+			return {
+				"success": False,
+				"message": f"ShipStation API error: {response.status_code} - {response.text[:200]}"
+			}
+		
+		data = response.json()
+		labels = data.get("labels", [])
+		
+		if not labels:
+			return {
+				"success": False,
+				"message": f"No labels found in ShipStation for shipment {shipment_id}. Order may not be shipped yet."
+			}
+		
+		# Get tracking from first label
+		label = labels[0]
+		fetched_tracking = label.get("tracking_number")
+		fetched_carrier = label.get("service_code") or label.get("carrier_id")
+		shipment_cost = label.get("shipment_cost", {})
+		if isinstance(shipment_cost, dict):
+			cost = shipment_cost.get("amount")
+		else:
+			cost = shipment_cost
+		
+		# Update the Delivery Note
+		if fetched_tracking:
+			dn.db_set("custom_shipstation_tracking_number", fetched_tracking, update_modified=False)
+		if fetched_carrier:
+			dn.db_set("custom_shipstation_carrier", fetched_carrier, update_modified=False)
+		if cost:
+			dn.db_set("custom_shipstation_shipping_cost", flt(cost), update_modified=False)
+		
+		# Set workflow state to Shipped
+		dn.db_set("workflow_state", "Shipped", update_modified=False)
+		
+		# Add comment
+		dn.add_comment(
+			comment_type="Info",
+			text=f"Manual sync from ShipStation: Shipped via {fetched_carrier or 'carrier'}. Tracking: {fetched_tracking}. Cost: ${flt(cost) if cost else 'N/A'}"
+		)
+		
+		frappe.db.commit()
+		
+		return {
+			"success": True,
+			"message": f"Successfully synced {delivery_note_name} from ShipStation",
+			"tracking_number": fetched_tracking,
+			"carrier": fetched_carrier,
+			"cost": cost
+		}
+		
+	except Exception as e:
+		frappe.log_error(
+			message=f"Error in manual sync for {delivery_note_name}: {str(e)}\n{frappe.get_traceback()}",
+			title="Manual ShipStation Sync Error"
+		)
+		return {
+			"success": False,
+			"message": str(e)
+		}
+
+
+@frappe.whitelist()
+def bulk_sync_shipstation_tracking(delivery_notes=None, days_back=7):
+	"""Bulk sync tracking info for Delivery Notes that are missing it.
+	
+	Args:
+		delivery_notes: Optional list of DN names (JSON string). If not provided, finds all DNs missing tracking.
+		days_back: Number of days to look back (default 7)
+	
+	Returns:
+		dict: Summary of sync results
+	"""
+	import json as json_module
+	
+	frappe.set_user("Administrator")
+	
+	if delivery_notes:
+		if isinstance(delivery_notes, str):
+			dn_list = json_module.loads(delivery_notes)
+		else:
+			dn_list = delivery_notes
+	else:
+		# Find Delivery Notes with ShipStation shipment ID but no tracking
+		dn_list = frappe.db.sql("""
+			SELECT name FROM `tabDelivery Note`
+			WHERE docstatus = 1
+			AND (custom_shipstation_shipment_id IS NOT NULL AND custom_shipstation_shipment_id != '')
+			AND (custom_shipstation_tracking_number IS NULL OR custom_shipstation_tracking_number = '')
+			AND creation >= DATE_SUB(NOW(), INTERVAL %s DAY)
+			ORDER BY creation DESC
+			LIMIT 100
+		""", (cint(days_back),), as_dict=True)
+		dn_list = [d.name for d in dn_list]
+	
+	if not dn_list:
+		return {
+			"success": True,
+			"message": "No Delivery Notes found that need tracking sync",
+			"synced": 0,
+			"failed": 0
+		}
+	
+	synced = 0
+	failed = 0
+	results = []
+	
+	for dn_name in dn_list:
+		result = manually_sync_shipstation_tracking(dn_name)
+		if result.get("success"):
+			synced += 1
+		else:
+			failed += 1
+		results.append({"delivery_note": dn_name, **result})
+	
+	summary = {
+		"success": True,
+		"message": f"Bulk sync complete. Synced: {synced}, Failed: {failed}",
+		"synced": synced,
+		"failed": failed,
+		"details": results
+	}
+	
+	frappe.log_error(
+		message=frappe.as_json(summary, indent=2),
+		title="Bulk ShipStation Sync - Summary"
+	)
+	
+	return summary
+
+
 def update_shopify_with_tracking_direct(shopify_order_id, shopify_store, tracking_number, carrier):
 	"""Update Shopify order with tracking information (direct parameters).
 	

@@ -346,6 +346,21 @@ def update_draft_invoice(invoice_name, shopify_order, store_name, retry_count=0)
 		import time
 		time.sleep(1.0 * (retry_count + 1))  # Exponential backoff: 1s, 2s, 3s, 4s, 5s
 		return update_draft_invoice(invoice_name, shopify_order, store_name, retry_count + 1)
+	except frappe.QueryDeadlockError:
+		# Database deadlock - another transaction is conflicting, retry with backoff
+		frappe.log_error(
+			message=f"Deadlock detected updating invoice {invoice_name}, retrying... (attempt {retry_count + 1})",
+			title="Database Deadlock - Retrying"
+		)
+		# Rollback the current transaction to release locks
+		frappe.db.rollback()
+		# Exponential backoff with jitter to reduce collision probability
+		import time
+		import random
+		base_delay = 1.0 * (retry_count + 1)
+		jitter = random.uniform(0, 0.5)
+		time.sleep(base_delay + jitter)
+		return update_draft_invoice(invoice_name, shopify_order, store_name, retry_count + 1)
 	except Exception as e:
 		frappe.log_error(
 			message=f"Failed to update draft invoice {invoice_name}: {str(e)}\n{frappe.get_traceback()}",
@@ -2354,3 +2369,217 @@ def fix_hollow_invoices(store_name=None):
 		message=f"Hollow invoice fix complete. Fixed: {fixed}, Still hollow: {still_hollow}, Errors: {errors}",
 		title="Hollow Invoice Fix - Complete"
 	)
+
+
+@frappe.whitelist()
+def retry_failed_order_syncs(days_back=7, store_name=None, max_retries=50):
+	"""Retry failed order syncs from the Ecommerce Integration Log.
+	
+	Args:
+		days_back: Number of days to look back for failed syncs (default 7)
+		store_name: Optional store name to filter by
+		max_retries: Maximum number of orders to retry in one batch (default 50)
+	
+	Returns:
+		dict: Summary of retry results
+	"""
+	frappe.set_user("Administrator")
+	
+	# Build filters for failed order syncs
+	filters = {
+		"status": "Error",
+		"integration": "Shopify",
+		"creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -cint(days_back))]
+	}
+	
+	if store_name:
+		filters["store"] = store_name
+	
+	# Find failed order syncs
+	failed_logs = frappe.get_all(
+		"Ecommerce Integration Log",
+		filters=filters,
+		fields=["name", "request_data", "store", "message", "creation"],
+		order_by="creation desc",
+		limit=cint(max_retries)
+	)
+	
+	if not failed_logs:
+		return {
+			"success": True,
+			"message": "No failed order syncs found",
+			"retried": 0,
+			"succeeded": 0,
+			"failed": 0
+		}
+	
+	retried = 0
+	succeeded = 0
+	failed = 0
+	results = []
+	
+	for log in failed_logs:
+		try:
+			# Parse the request data to get the order payload
+			if not log.request_data:
+				results.append({
+					"log": log.name,
+					"status": "skipped",
+					"reason": "No request data"
+				})
+				continue
+			
+			try:
+				payload = json.loads(log.request_data)
+			except json.JSONDecodeError:
+				results.append({
+					"log": log.name,
+					"status": "skipped",
+					"reason": "Invalid JSON in request data"
+				})
+				continue
+			
+			order_id = payload.get("id")
+			order_name = payload.get("name")
+			
+			if not order_id:
+				results.append({
+					"log": log.name,
+					"status": "skipped",
+					"reason": "No order ID in payload"
+				})
+				continue
+			
+			# Check if this order already exists in ERPNext (avoid duplicates)
+			existing_invoice = frappe.db.get_value(
+				"Sales Invoice",
+				{ORDER_ID_FIELD: str(order_id)},
+				"name"
+			)
+			
+			if existing_invoice:
+				results.append({
+					"log": log.name,
+					"order_id": order_id,
+					"order_name": order_name,
+					"status": "skipped",
+					"reason": f"Order already exists as {existing_invoice}"
+				})
+				continue
+			
+			# Retry the sync
+			retried += 1
+			store = log.store
+			
+			frappe.log_error(
+				message=f"Retrying order sync for {order_name} (ID: {order_id}) from store {store}",
+				title="Order Sync Retry - Starting"
+			)
+			
+			try:
+				# Call sync_sales_order with the original payload
+				sync_sales_order(
+					payload=payload,
+					request_id=f"retry-{log.name}",
+					store_name=store
+				)
+				
+				# Check if invoice was created
+				new_invoice = frappe.db.get_value(
+					"Sales Invoice",
+					{ORDER_ID_FIELD: str(order_id)},
+					"name"
+				)
+				
+				if new_invoice:
+					succeeded += 1
+					results.append({
+						"log": log.name,
+						"order_id": order_id,
+						"order_name": order_name,
+						"status": "success",
+						"invoice": new_invoice
+					})
+					
+					# Update the original log status
+					frappe.db.set_value(
+						"Ecommerce Integration Log",
+						log.name,
+						{
+							"status": "Retried - Success",
+							"message": f"Successfully retried. Created invoice: {new_invoice}"
+						}
+					)
+				else:
+					failed += 1
+					results.append({
+						"log": log.name,
+						"order_id": order_id,
+						"order_name": order_name,
+						"status": "failed",
+						"reason": "Invoice not created after retry"
+					})
+					
+			except Exception as sync_error:
+				failed += 1
+				error_msg = str(sync_error)
+				results.append({
+					"log": log.name,
+					"order_id": order_id,
+					"order_name": order_name,
+					"status": "failed",
+					"reason": error_msg[:200]  # Truncate long errors
+				})
+				
+				frappe.log_error(
+					message=f"Retry failed for order {order_name}: {error_msg}",
+					title="Order Sync Retry - Failed"
+				)
+			
+			# Commit after each order to avoid long transactions
+			frappe.db.commit()
+			
+		except Exception as e:
+			failed += 1
+			frappe.log_error(
+				message=f"Error processing retry for log {log.name}: {str(e)}",
+				title="Order Sync Retry - Exception"
+			)
+	
+	summary = {
+		"success": True,
+		"message": f"Retry complete. Retried: {retried}, Succeeded: {succeeded}, Failed: {failed}",
+		"retried": retried,
+		"succeeded": succeeded,
+		"failed": failed,
+		"details": results
+	}
+	
+	frappe.log_error(
+		message=frappe.as_json(summary, indent=2),
+		title="Order Sync Retry - Summary"
+	)
+	
+	return summary
+
+
+def get_failed_order_sync_count(days_back=7, store_name=None):
+	"""Get count of failed order syncs for display in UI.
+	
+	Args:
+		days_back: Number of days to look back
+		store_name: Optional store name to filter by
+	
+	Returns:
+		int: Count of failed syncs
+	"""
+	filters = {
+		"status": "Error",
+		"integration": "Shopify",
+		"creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -cint(days_back))]
+	}
+	
+	if store_name:
+		filters["store"] = store_name
+	
+	return frappe.db.count("Ecommerce Integration Log", filters)

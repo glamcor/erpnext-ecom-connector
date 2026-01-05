@@ -32,6 +32,58 @@ frappe.ui.form.on('Shopify Store', {
 					}
 				});
 			}, __('Actions'));
+
+			frm.add_custom_button(__('Retry Failed Syncs'), function() {
+				frappe.prompt([
+					{
+						fieldname: 'days_back',
+						label: __('Days to look back'),
+						fieldtype: 'Int',
+						default: 7,
+						reqd: 1
+					},
+					{
+						fieldname: 'max_retries',
+						label: __('Max orders to retry'),
+						fieldtype: 'Int',
+						default: 50,
+						reqd: 1
+					}
+				], function(values) {
+					frappe.call({
+						method: 'ecommerce_integrations_multistore.shopify.order.retry_failed_order_syncs',
+						args: {
+							days_back: values.days_back,
+							store_name: frm.doc.name,
+							max_retries: values.max_retries
+						},
+						callback: function(r) {
+							if (!r.exc && r.message) {
+								let msg = r.message.message;
+								if (r.message.succeeded > 0) {
+									frappe.msgprint({
+										title: __('Retry Complete'),
+										indicator: 'green',
+										message: msg
+									});
+								} else if (r.message.retried === 0) {
+									frappe.msgprint({
+										title: __('No Failed Syncs'),
+										indicator: 'blue',
+										message: msg
+									});
+								} else {
+									frappe.msgprint({
+										title: __('Retry Complete'),
+										indicator: 'orange',
+										message: msg
+									});
+								}
+							}
+						}
+					});
+				}, __('Retry Failed Order Syncs'), __('Retry'));
+			}, __('Actions'));
 		}
 		
 		// Populate naming series dropdowns

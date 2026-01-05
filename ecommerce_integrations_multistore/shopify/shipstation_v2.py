@@ -206,8 +206,8 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
     if delivery_note.shipping_address_name:
         shipping_address = frappe.get_doc("Address", delivery_note.shipping_address_name)
         
-        # Get phone from address or customer
-        ship_to_phone = shipping_address.phone or customer.mobile_no or customer.phone or "(000) 000-0000"
+        # Get phone from address or customer (Customer DocType has mobile_no, not phone)
+        ship_to_phone = shipping_address.phone or customer.mobile_no or "(000) 000-0000"
         
         shipment["ship_to"].update({
             "phone": ship_to_phone,

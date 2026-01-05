@@ -1,0 +1,100 @@
+// Copyright (c) 2025, Frappe and contributors
+// For license information, please see license.txt
+
+frappe.ui.form.on('Delivery Note', {
+	refresh: function(frm) {
+		// Only show buttons for submitted Delivery Notes with ShipStation integration
+		if (frm.doc.docstatus === 1 && frm.doc.custom_shipstation_shipment_id) {
+			// Check if tracking is missing
+			if (!frm.doc.custom_shipstation_tracking_number) {
+				frm.add_custom_button(__('Sync Tracking from ShipStation'), function() {
+					frappe.call({
+						method: 'ecommerce_integrations_multistore.shopify.shipstation_webhook.manually_sync_shipstation_tracking',
+						args: {
+							delivery_note_name: frm.doc.name
+						},
+						freeze: true,
+						freeze_message: __('Fetching tracking info from ShipStation...'),
+						callback: function(r) {
+							if (r.message) {
+								if (r.message.success) {
+									frappe.msgprint({
+										title: __('Tracking Synced'),
+										indicator: 'green',
+										message: __('Tracking Number: {0}<br>Carrier: {1}', 
+											[r.message.tracking_number || 'N/A', r.message.carrier || 'N/A'])
+									});
+									frm.reload_doc();
+								} else {
+									frappe.msgprint({
+										title: __('Sync Failed'),
+										indicator: 'red',
+										message: r.message.message
+									});
+								}
+							}
+						}
+					});
+				}, __('ShipStation'));
+			}
+			
+			// Always show option to manually enter tracking
+			frm.add_custom_button(__('Enter Tracking Manually'), function() {
+				frappe.prompt([
+					{
+						fieldname: 'tracking_number',
+						label: __('Tracking Number'),
+						fieldtype: 'Data',
+						reqd: 1,
+						default: frm.doc.custom_shipstation_tracking_number || ''
+					},
+					{
+						fieldname: 'carrier',
+						label: __('Carrier'),
+						fieldtype: 'Select',
+						options: '\nUPS\nUSPS\nFedEx\nDHL\nDHL Express\nOther',
+						default: frm.doc.custom_shipstation_carrier || ''
+					}
+				], function(values) {
+					frappe.call({
+						method: 'ecommerce_integrations_multistore.shopify.shipstation_webhook.manually_sync_shipstation_tracking',
+						args: {
+							delivery_note_name: frm.doc.name,
+							tracking_number: values.tracking_number,
+							carrier: values.carrier
+						},
+						freeze: true,
+						freeze_message: __('Updating tracking info...'),
+						callback: function(r) {
+							if (r.message) {
+								if (r.message.success) {
+									frappe.msgprint({
+										title: __('Tracking Updated'),
+										indicator: 'green',
+										message: r.message.message
+									});
+									frm.reload_doc();
+								} else {
+									frappe.msgprint({
+										title: __('Update Failed'),
+										indicator: 'red',
+										message: r.message.message
+									});
+								}
+							}
+						}
+					});
+				}, __('Enter Tracking Information'), __('Update'));
+			}, __('ShipStation'));
+		}
+		
+		// Show tracking info if available
+		if (frm.doc.custom_shipstation_tracking_number) {
+			frm.dashboard.add_indicator(
+				__('Tracking: {0}', [frm.doc.custom_shipstation_tracking_number]),
+				'green'
+			);
+		}
+	}
+});
+
