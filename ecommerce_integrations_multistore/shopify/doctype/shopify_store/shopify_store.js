@@ -471,6 +471,20 @@ function fix_missing_items(dialog, fix_type, items) {
 						let msg = __('Success: {0}, Failed: {1}, Skipped: {2}', 
 							[result.success, result.failed, result.skipped || 0]);
 						
+						// Add success details for draft invoices (shows what was created)
+						if (result.success > 0 && result.details && fix_type === 'draft_invoices') {
+							msg += '<br><br><strong>' + __('Processed') + ':</strong><br>';
+							msg += '<table class="table table-sm table-bordered" style="margin-top:10px">';
+							msg += '<thead><tr><th>Order</th><th>Created</th></tr></thead><tbody>';
+							result.details.forEach(function(d) {
+								if (d.status === 'success') {
+									msg += '<tr><td>' + (d.order_number || d.order_id) + '</td>';
+									msg += '<td>' + (d.created || '') + '</td></tr>';
+								}
+							});
+							msg += '</tbody></table>';
+						}
+						
 						// Add failure details if any
 						if (result.failed > 0 && result.details) {
 							msg += '<br><br><strong>' + __('Failure Details') + ':</strong><br>';
@@ -485,21 +499,67 @@ function fix_missing_items(dialog, fix_type, items) {
 							msg += '</tbody></table>';
 						}
 						
-						frappe.msgprint({
-							title: __('Fix Complete'),
-							indicator: indicator,
-							message: msg
-						});
+						// Show results as toast notification instead of modal
+						frappe.show_alert({
+							message: __('Success: {0}, Failed: {1}', [result.success, result.failed]),
+							indicator: indicator
+						}, 5);
 						
-						// Close the dialog if all successful
-						if (result.failed === 0) {
-							dialog.hide();
+						// Update the counts in the dialog instead of closing it
+						update_reconciliation_counts(dialog, fix_type, result.success);
+						
+						// Show detailed results in a separate dialog if there were failures
+						if (result.failed > 0) {
+							frappe.msgprint({
+								title: __('Fix Complete - Some Failed'),
+								indicator: indicator,
+								message: msg
+							});
 						}
 					}
 				}
 			});
 		}
 	);
+}
+
+function update_reconciliation_counts(dialog, fix_type, success_count) {
+	// Map fix_type to the data array and badge selector
+	let type_map = {
+		'invoices': { array: 'missing_invoices', badge: '.fix-invoices-btn' },
+		'draft_invoices': { array: 'draft_invoices', badge: '.fix-drafts-btn' },
+		'payments': { array: 'missing_payments', badge: '.fix-payments-btn' },
+		'delivery_notes': { array: 'missing_delivery_notes', badge: '.fix-dns-btn' },
+		'tracking': { array: 'missing_tracking', badge: '.fix-tracking-btn' }
+	};
+	
+	let config = type_map[fix_type];
+	if (!config || !dialog.reconciliation_data) return;
+	
+	// Remove processed items from the data array
+	let data = dialog.reconciliation_data;
+	if (data[config.array]) {
+		// Remove the first N items that were processed
+		data[config.array] = data[config.array].slice(success_count);
+		
+		// Update the summary count
+		let count_key = config.array + '_count';
+		if (data.summary[count_key] !== undefined) {
+			data.summary[count_key] = Math.max(0, data.summary[count_key] - success_count);
+		}
+		
+		// Update the badge in the UI
+		let $row = dialog.$wrapper.find(config.badge).closest('tr');
+		let new_count = data[config.array].length;
+		
+		if (new_count === 0) {
+			// Remove the row if no more items
+			$row.fadeOut(300, function() { $(this).remove(); });
+		} else {
+			// Update the badge count
+			$row.find('.badge').text(new_count);
+		}
+	}
 }
 
 function show_details_dialog(title, items) {
