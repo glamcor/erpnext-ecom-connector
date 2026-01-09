@@ -668,10 +668,14 @@ def fix_missing_tracking(store_name, order_ids=None):
 # Helper functions
 
 def _fetch_shopify_orders_for_reconciliation(store_name, date_from, date_to, order_from=None, order_to=None):
-    """Fetch orders from Shopify for reconciliation."""
+    """Fetch orders from Shopify for reconciliation.
+    
+    If specific order numbers are provided, fetches by order name (much faster).
+    Otherwise fetches by date range.
+    """
     
     @temp_shopify_session
-    def fetch_orders(store_name=None):
+    def fetch_orders_by_date(store_name=None):
         from_time = get_datetime(date_from).replace(hour=0, minute=0, second=0).astimezone().isoformat()
         to_time = get_datetime(date_to).replace(hour=23, minute=59, second=59).astimezone().isoformat()
         
@@ -692,7 +696,60 @@ def _fetch_shopify_orders_for_reconciliation(store_name, date_from, date_to, ord
         
         return orders
     
-    return fetch_orders(store_name=store_name)
+    @temp_shopify_session
+    def fetch_orders_by_name(order_name, store_name=None):
+        """Fetch orders by name/number - Shopify supports this directly."""
+        try:
+            # Shopify API allows searching by name
+            orders = Order.find(name=order_name, status="any")
+            return [o.to_dict() for o in orders] if orders else []
+        except Exception as e:
+            frappe.log_error(
+                message=f"Failed to fetch order by name {order_name}: {str(e)}",
+                title="Reconciliation - Fetch by Name Failed"
+            )
+            return []
+    
+    @temp_shopify_session
+    def fetch_orders_by_name_range(order_from, order_to, store_name=None):
+        """Fetch a range of orders by iterating through order numbers."""
+        from_num = _extract_order_number(order_from)
+        to_num = _extract_order_number(order_to)
+        
+        # Extract prefix (e.g., "RLR" from "RLR155184")
+        import re
+        prefix_match = re.match(r'^([A-Za-z]+)', order_from or order_to or "")
+        prefix = prefix_match.group(1) if prefix_match else ""
+        
+        orders = []
+        # Limit to 100 orders max to prevent timeout
+        max_orders = min(to_num - from_num + 1, 100)
+        
+        for i in range(max_orders):
+            order_name = f"{prefix}{from_num + i}"
+            try:
+                found_orders = Order.find(name=order_name, status="any")
+                if found_orders:
+                    for o in found_orders:
+                        orders.append(o.to_dict())
+            except Exception:
+                pass  # Order might not exist, continue
+        
+        return orders
+    
+    # If single order specified (from == to), fetch directly by name
+    if order_from and order_to and order_from == order_to:
+        return fetch_orders_by_name(order_from, store_name=store_name)
+    
+    # If order range specified, fetch by iterating (faster than date range for small ranges)
+    if order_from and order_to:
+        from_num = _extract_order_number(order_from)
+        to_num = _extract_order_number(order_to)
+        if to_num - from_num <= 100:  # Only use this method for ranges <= 100 orders
+            return fetch_orders_by_name_range(order_from, order_to, store_name=store_name)
+    
+    # Otherwise fetch by date range
+    return fetch_orders_by_date(store_name=store_name)
 
 
 def _fetch_single_order(store_name, order_id):
