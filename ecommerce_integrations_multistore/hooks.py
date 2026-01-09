@@ -51,7 +51,8 @@ doctype_js = {
 	# "Pick List": "public/js/unicommerce/pick_list.js",  # DISABLED: Unicommerce not used
 }
 doctype_list_js = {
-	"Sales Invoice": "public/js/shopify/sales_invoice_list.js"
+	"Sales Invoice": "public/js/shopify/sales_invoice_list.js",
+	"Delivery Note": "public/js/shopify/delivery_note_list.js"
 }
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}

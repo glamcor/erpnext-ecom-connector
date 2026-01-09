@@ -25,12 +25,10 @@ frappe.ui.form.on('Delivery Note', {
 						callback: function(r) {
 							if (r.message) {
 								if (r.message.success) {
-									frappe.msgprint({
-										title: __('Tracking Synced'),
-										indicator: 'green',
-										message: __('Tracking Number: {0}<br>Carrier: {1}', 
-											[r.message.tracking_number || 'N/A', r.message.carrier || 'N/A'])
-									});
+									frappe.show_alert({
+										message: __('Tracking synced: {0}', [r.message.tracking_number || 'N/A']),
+										indicator: 'green'
+									}, 3);
 									frm.reload_doc();
 								} else {
 									frappe.msgprint({
