@@ -311,6 +311,19 @@ function show_reconciliation_results(frm, data) {
 		`;
 	}
 	
+	// NEW: Draft invoices that need full processing
+	if (summary.draft_invoices_count > 0) {
+		html += `
+			<tr>
+				<td><strong>${__('Draft Invoices')}</strong><br>
+					<small class="text-muted">${__('Paid/shipped orders with unsubmitted invoices - will submit, create payment & DN')}</small></td>
+				<td class="text-center"><span class="badge badge-danger">${summary.draft_invoices_count}</span></td>
+				<td><button class="btn btn-xs btn-primary fix-drafts-btn">${__('Process All')}</button>
+					<button class="btn btn-xs btn-default view-drafts-btn">${__('View')}</button></td>
+			</tr>
+		`;
+	}
+	
 	if (summary.missing_payments_count > 0) {
 		html += `
 			<tr>
@@ -375,6 +388,10 @@ function show_reconciliation_results(frm, data) {
 		fix_missing_items(d, 'invoices', data.missing_invoices);
 	});
 	
+	d.$wrapper.find('.fix-drafts-btn').on('click', function() {
+		fix_missing_items(d, 'draft_invoices', data.draft_invoices);
+	});
+	
 	d.$wrapper.find('.fix-payments-btn').on('click', function() {
 		fix_missing_items(d, 'payments', data.missing_payments);
 	});
@@ -390,6 +407,10 @@ function show_reconciliation_results(frm, data) {
 	// View buttons
 	d.$wrapper.find('.view-invoices-btn').on('click', function() {
 		show_details_dialog('Missing Invoices', data.missing_invoices);
+	});
+	
+	d.$wrapper.find('.view-drafts-btn').on('click', function() {
+		show_details_dialog('Draft Invoices', data.draft_invoices);
 	});
 	
 	d.$wrapper.find('.view-payments-btn').on('click', function() {
@@ -416,6 +437,7 @@ function fix_missing_items(dialog, fix_type, items) {
 	let order_ids = items.map(item => item.order_id);
 	let method_map = {
 		'invoices': 'ecommerce_integrations_multistore.shopify.reconciliation.fix_missing_invoices',
+		'draft_invoices': 'ecommerce_integrations_multistore.shopify.reconciliation.fix_draft_invoices',
 		'payments': 'ecommerce_integrations_multistore.shopify.reconciliation.fix_missing_payments',
 		'delivery_notes': 'ecommerce_integrations_multistore.shopify.reconciliation.fix_missing_delivery_notes',
 		'tracking': 'ecommerce_integrations_multistore.shopify.reconciliation.fix_missing_tracking'
@@ -423,6 +445,7 @@ function fix_missing_items(dialog, fix_type, items) {
 	
 	let type_labels = {
 		'invoices': __('Invoices'),
+		'draft_invoices': __('Draft Invoices'),
 		'payments': __('Payments'),
 		'delivery_notes': __('Delivery Notes'),
 		'tracking': __('Tracking')

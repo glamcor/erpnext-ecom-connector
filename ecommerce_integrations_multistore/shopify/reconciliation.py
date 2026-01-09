@@ -90,6 +90,7 @@ def reconcile_shopify_orders(
         "order_to": order_to,
         "total_shopify_orders": 0,
         "missing_invoices": [],
+        "draft_invoices": [],  # NEW: Draft invoices that need processing
         "missing_payments": [],
         "missing_delivery_notes": [],
         "missing_tracking": [],
@@ -139,25 +140,43 @@ def reconcile_shopify_orders(
                 results["missing_invoices"].append(order_info)
         
         if invoice:
-            # Check for Payment Entry
-            if check_payments and financial_status == "paid":
+            # NEW: Check for draft invoices that should be processed
+            # Draft invoice (docstatus=0) for a paid/shipped order needs to be submitted
+            if invoice.docstatus == 0 and financial_status == "paid":
+                order_info_copy = order_info.copy()
+                order_info_copy["invoice"] = invoice.name
+                order_info_copy["invoice_status"] = "Draft"
+                order_info_copy["needs_submit"] = True
+                order_info_copy["needs_payment"] = True
+                order_info_copy["needs_delivery_note"] = fulfillment_status in ("fulfilled", "partial")
+                if fulfillment_status in ("fulfilled", "partial"):
+                    order_info_copy["fulfillments"] = _get_fulfillment_info(order)
+                    shopify_tracking = _get_shopify_tracking(order)
+                    if shopify_tracking:
+                        order_info_copy["shopify_tracking"] = shopify_tracking
+                results["draft_invoices"].append(order_info_copy)
+            
+            # Check for Payment Entry (only for submitted invoices)
+            elif check_payments and financial_status == "paid":
                 # Check if invoice has outstanding amount (not fully paid)
                 if invoice.docstatus == 1 and float(invoice.outstanding_amount or 0) > 0:
-                    order_info["invoice"] = invoice.name
-                    order_info["outstanding"] = invoice.outstanding_amount
-                    results["missing_payments"].append(order_info)
+                    order_info_copy = order_info.copy()
+                    order_info_copy["invoice"] = invoice.name
+                    order_info_copy["outstanding"] = invoice.outstanding_amount
+                    results["missing_payments"].append(order_info_copy)
             
-            # Check for Delivery Note
-            if check_delivery_notes and fulfillment_status in ("fulfilled", "partial"):
+            # Check for Delivery Note (only for submitted invoices)
+            if check_delivery_notes and fulfillment_status in ("fulfilled", "partial") and invoice.docstatus == 1:
                 dn = frappe.db.get_value(
                     "Delivery Note",
                     {ORDER_ID_FIELD: order_id, "docstatus": ["!=", 2]},
                     "name"
                 )
                 if not dn:
-                    order_info["invoice"] = invoice.name
-                    order_info["fulfillments"] = _get_fulfillment_info(order)
-                    results["missing_delivery_notes"].append(order_info)
+                    order_info_copy = order_info.copy()
+                    order_info_copy["invoice"] = invoice.name
+                    order_info_copy["fulfillments"] = _get_fulfillment_info(order)
+                    results["missing_delivery_notes"].append(order_info_copy)
             
             # Check for tracking info
             if check_tracking and fulfillment_status in ("fulfilled", "partial"):
@@ -171,14 +190,16 @@ def reconcile_shopify_orders(
                     # Get tracking from Shopify
                     shopify_tracking = _get_shopify_tracking(order)
                     if shopify_tracking:
-                        order_info["delivery_note"] = dn.name
-                        order_info["shopify_tracking"] = shopify_tracking
-                        results["missing_tracking"].append(order_info)
+                        order_info_copy = order_info.copy()
+                        order_info_copy["delivery_note"] = dn.name
+                        order_info_copy["shopify_tracking"] = shopify_tracking
+                        results["missing_tracking"].append(order_info_copy)
     
     # Build summary
     results["summary"] = {
         "total_orders_checked": results["total_shopify_orders"],
         "missing_invoices_count": len(results["missing_invoices"]),
+        "draft_invoices_count": len(results["draft_invoices"]),  # NEW
         "missing_payments_count": len(results["missing_payments"]),
         "missing_delivery_notes_count": len(results["missing_delivery_notes"]),
         "missing_tracking_count": len(results["missing_tracking"]),
@@ -266,6 +287,201 @@ def fix_missing_invoices(store_name, order_ids=None):
             frappe.log_error(
                 message=f"Failed to create invoice for order {order_id}: {str(e)}",
                 title="Reconciliation - Fix Invoice Failed"
+            )
+    
+    return results
+
+
+@frappe.whitelist()
+def fix_draft_invoices(store_name, order_ids=None):
+    """
+    Process draft invoices: submit them, create payment entries, and create delivery notes.
+    
+    This handles the case where invoices were created but never submitted, blocking
+    all downstream processing (payments, delivery notes, tracking).
+    
+    Args:
+        store_name: Shopify Store name
+        order_ids: JSON list of Shopify order IDs to process
+    
+    Returns:
+        dict: Results of the fix operation
+    """
+    from ecommerce_integrations_multistore.shopify.invoice import create_payment_entry_for_invoice
+    from ecommerce_integrations_multistore.shopify.fulfillment import create_delivery_note
+    
+    if isinstance(order_ids, str):
+        order_ids = json.loads(order_ids)
+    
+    if not order_ids:
+        frappe.throw(_("No order IDs provided"))
+    
+    store = frappe.get_doc(STORE_DOCTYPE, store_name)
+    
+    results = {
+        "success": 0,
+        "failed": 0,
+        "skipped": 0,
+        "details": []
+    }
+    
+    for order_id in order_ids:
+        try:
+            # Get the invoice
+            invoice = frappe.db.get_value(
+                "Sales Invoice",
+                {ORDER_ID_FIELD: cstr(order_id)},
+                ["name", "docstatus"],
+                as_dict=True
+            )
+            
+            if not invoice:
+                results["failed"] += 1
+                results["details"].append({
+                    "order_id": order_id,
+                    "status": "failed",
+                    "reason": "Invoice not found"
+                })
+                continue
+            
+            if invoice.docstatus == 1:
+                results["skipped"] += 1
+                results["details"].append({
+                    "order_id": order_id,
+                    "invoice": invoice.name,
+                    "status": "skipped",
+                    "reason": "Invoice already submitted"
+                })
+                continue
+            
+            if invoice.docstatus == 2:
+                results["skipped"] += 1
+                results["details"].append({
+                    "order_id": order_id,
+                    "invoice": invoice.name,
+                    "status": "skipped",
+                    "reason": "Invoice is cancelled"
+                })
+                continue
+            
+            # Fetch order from Shopify for fulfillment data
+            shopify_order = _fetch_single_order(store_name, order_id)
+            
+            # Get the invoice doc
+            invoice_doc = frappe.get_doc("Sales Invoice", invoice.name)
+            
+            # Step 1: Submit the invoice
+            try:
+                invoice_doc.flags.ignore_validate = True
+                invoice_doc.submit()
+                frappe.db.commit()
+            except Exception as submit_error:
+                results["failed"] += 1
+                results["details"].append({
+                    "order_id": order_id,
+                    "invoice": invoice.name,
+                    "status": "failed",
+                    "reason": f"Failed to submit invoice: {str(submit_error)[:150]}"
+                })
+                frappe.log_error(
+                    message=f"Failed to submit invoice {invoice.name}: {str(submit_error)}",
+                    title="Reconciliation - Submit Invoice Failed"
+                )
+                continue
+            
+            # Reload invoice after submit
+            invoice_doc.reload()
+            
+            created_items = ["Invoice submitted"]
+            
+            # Step 2: Create Payment Entry
+            try:
+                create_payment_entry_for_invoice(invoice_doc, store)
+                frappe.db.commit()
+                
+                # Check if PE was created
+                pe = frappe.db.sql("""
+                    SELECT parent FROM `tabPayment Entry Reference`
+                    WHERE reference_doctype = 'Sales Invoice'
+                    AND reference_name = %s
+                    AND docstatus != 2
+                    LIMIT 1
+                """, (invoice.name,), as_dict=True)
+                
+                if pe:
+                    created_items.append(f"Payment Entry {pe[0].parent}")
+            except Exception as pe_error:
+                created_items.append(f"Payment Entry failed: {str(pe_error)[:50]}")
+                frappe.log_error(
+                    message=f"Failed to create PE for {invoice.name}: {str(pe_error)}",
+                    title="Reconciliation - PE Creation Failed"
+                )
+            
+            # Step 3: Create Delivery Note if order is fulfilled
+            if shopify_order and shopify_order.get("fulfillment_status") in ("fulfilled", "partial"):
+                try:
+                    # Check if DN already exists
+                    existing_dn = frappe.db.get_value(
+                        "Delivery Note",
+                        {ORDER_ID_FIELD: cstr(order_id), "docstatus": ["!=", 2]},
+                        "name"
+                    )
+                    
+                    if not existing_dn:
+                        create_delivery_note(shopify_order, store, invoice_doc, store_name=store_name)
+                        frappe.db.commit()
+                        
+                        # Get the created DN
+                        new_dn = frappe.db.get_value(
+                            "Delivery Note",
+                            {ORDER_ID_FIELD: cstr(order_id), "docstatus": ["!=", 2]},
+                            "name"
+                        )
+                        if new_dn:
+                            created_items.append(f"Delivery Note {new_dn}")
+                            
+                            # Step 4: Add tracking if available
+                            tracking_info = _get_shopify_tracking(shopify_order)
+                            if tracking_info:
+                                frappe.db.set_value(
+                                    "Delivery Note",
+                                    new_dn,
+                                    {
+                                        "custom_shipstation_tracking_number": tracking_info.get("tracking_number"),
+                                        "custom_shipstation_carrier": tracking_info.get("carrier")
+                                    }
+                                )
+                                created_items.append(f"Tracking: {tracking_info.get('tracking_number')}")
+                    else:
+                        created_items.append(f"DN {existing_dn} already exists")
+                except Exception as dn_error:
+                    created_items.append(f"DN failed: {str(dn_error)[:50]}")
+                    frappe.log_error(
+                        message=f"Failed to create DN for {invoice.name}: {str(dn_error)}",
+                        title="Reconciliation - DN Creation Failed"
+                    )
+            
+            results["success"] += 1
+            results["details"].append({
+                "order_id": order_id,
+                "order_number": shopify_order.get("name") if shopify_order else "",
+                "invoice": invoice.name,
+                "status": "success",
+                "created": ", ".join(created_items)
+            })
+            
+            frappe.db.commit()
+            
+        except Exception as e:
+            results["failed"] += 1
+            results["details"].append({
+                "order_id": order_id,
+                "status": "failed",
+                "reason": str(e)[:200]
+            })
+            frappe.log_error(
+                message=f"Failed to process draft invoice for order {order_id}: {str(e)}",
+                title="Reconciliation - Fix Draft Invoice Failed"
             )
     
     return results
