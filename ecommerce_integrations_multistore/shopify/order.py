@@ -71,7 +71,7 @@ def is_complete_order(shopify_order):
 	return True
 
 
-def sync_sales_order(payload, request_id=None, store_name=None):
+def sync_sales_order(payload, request_id=None, store_name=None, bypass_cutoff=False):
 	"""Sync sales order from Shopify webhook to ERPNext.
 	
 	Creates a draft Sales Invoice instead of Sales Order.
@@ -80,13 +80,15 @@ def sync_sales_order(payload, request_id=None, store_name=None):
 	    payload: Shopify order data
 	    request_id: Integration log ID
 	    store_name: Shopify Store name (multi-store support)
+	    bypass_cutoff: If True, skip the order cutoff date check (for reconciliation)
 	"""
 	order = payload
 	frappe.set_user("Administrator")
 	frappe.flags.request_id = request_id
 
 	# Check order cutoff date - ignore orders created before the cutoff
-	if store_name:
+	# Can be bypassed for manual reconciliation
+	if store_name and not bypass_cutoff:
 		cutoff_date = frappe.db.get_value(STORE_DOCTYPE, store_name, "order_cutoff_date")
 		if cutoff_date:
 			order_created_at = get_datetime(order.get("created_at"))

@@ -227,7 +227,8 @@ def fix_missing_invoices(store_name, order_ids=None):
                 continue
             
             # Create invoice using existing sync function
-            sync_sales_order(shopify_order, store_name=store_name)
+            # bypass_cutoff=True because reconciliation is intentionally fixing old orders
+            sync_sales_order(shopify_order, store_name=store_name, bypass_cutoff=True)
             
             # Verify invoice was created
             invoice = frappe.db.get_value(
@@ -250,7 +251,7 @@ def fix_missing_invoices(store_name, order_ids=None):
                     "order_id": order_id,
                     "order_number": shopify_order.get("name"),
                     "status": "failed",
-                    "reason": "Invoice not created"
+                    "reason": "Invoice not created (check Error Log for details)"
                 })
             
             frappe.db.commit()

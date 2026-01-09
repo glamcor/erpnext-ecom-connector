@@ -443,11 +443,29 @@ function fix_missing_items(dialog, fix_type, items) {
 					if (!r.exc && r.message) {
 						let result = r.message;
 						let indicator = result.failed === 0 ? 'green' : (result.success > 0 ? 'orange' : 'red');
+						
+						// Build message with failure details
+						let msg = __('Success: {0}, Failed: {1}, Skipped: {2}', 
+							[result.success, result.failed, result.skipped || 0]);
+						
+						// Add failure details if any
+						if (result.failed > 0 && result.details) {
+							msg += '<br><br><strong>' + __('Failure Details') + ':</strong><br>';
+							msg += '<table class="table table-sm table-bordered" style="margin-top:10px">';
+							msg += '<thead><tr><th>Order</th><th>Reason</th></tr></thead><tbody>';
+							result.details.forEach(function(d) {
+								if (d.status === 'failed') {
+									msg += '<tr><td>' + (d.order_number || d.order_id) + '</td>';
+									msg += '<td>' + (d.reason || 'Unknown error') + '</td></tr>';
+								}
+							});
+							msg += '</tbody></table>';
+						}
+						
 						frappe.msgprint({
 							title: __('Fix Complete'),
 							indicator: indicator,
-							message: __('Success: {0}, Failed: {1}, Skipped: {2}', 
-								[result.success, result.failed, result.skipped || 0])
+							message: msg
 						});
 						
 						// Close the dialog if all successful
