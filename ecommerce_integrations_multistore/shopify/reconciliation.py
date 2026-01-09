@@ -446,30 +446,29 @@ def fix_draft_invoices(store_name, order_ids=None):
                     )
                     
                     if not existing_dn:
-                        create_delivery_note(shopify_order, store, invoice_doc, store_name=store_name)
-                        frappe.db.commit()
+                        # Check if order already has tracking in Shopify
+                        tracking_info = _get_shopify_tracking(shopify_order)
                         
-                        # Get the created DN
-                        new_dn = frappe.db.get_value(
-                            "Delivery Note",
-                            {ORDER_ID_FIELD: cstr(order_id), "docstatus": ["!=", 2]},
-                            "name"
-                        )
-                        if new_dn:
-                            created_items.append(f"Delivery Note {new_dn}")
-                            
-                            # Step 4: Add tracking if available
-                            tracking_info = _get_shopify_tracking(shopify_order)
-                            if tracking_info:
-                                frappe.db.set_value(
-                                    "Delivery Note",
-                                    new_dn,
-                                    {
-                                        "custom_shipstation_tracking_number": tracking_info.get("tracking_number"),
-                                        "custom_shipstation_carrier": tracking_info.get("carrier")
-                                    }
-                                )
+                        if tracking_info:
+                            # Order already shipped - create DN with tracking, DON'T send to ShipStation
+                            new_dn = _create_delivery_note_with_tracking(
+                                shopify_order, store, invoice_doc, tracking_info, store_name
+                            )
+                            if new_dn:
+                                created_items.append(f"Delivery Note {new_dn} (already shipped)")
                                 created_items.append(f"Tracking: {tracking_info.get('tracking_number')}")
+                        else:
+                            # Order fulfilled but no tracking yet - use normal flow (sends to ShipStation)
+                            create_delivery_note(shopify_order, store, invoice_doc, store_name=store_name)
+                            frappe.db.commit()
+                            
+                            new_dn = frappe.db.get_value(
+                                "Delivery Note",
+                                {ORDER_ID_FIELD: cstr(order_id), "docstatus": ["!=", 2]},
+                                "name"
+                            )
+                            if new_dn:
+                                created_items.append(f"Delivery Note {new_dn} (sent to ShipStation)")
                     else:
                         created_items.append(f"DN {existing_dn} already exists")
                 except Exception as dn_error:
@@ -738,34 +737,62 @@ def fix_missing_delivery_notes(store_name, order_ids=None):
                 })
                 continue
             
-            # Create delivery note
+            # Check if order already has tracking in Shopify
+            tracking_info = _get_shopify_tracking(shopify_order)
             invoice_doc = frappe.get_doc("Sales Invoice", invoice.name)
-            create_delivery_note(shopify_order, store, invoice_doc, store_name=store_name)
             
-            # Verify DN was created
-            dn = frappe.db.get_value(
-                "Delivery Note",
-                {ORDER_ID_FIELD: cstr(order_id), "docstatus": ["!=", 2]},
-                "name"
-            )
-            
-            if dn:
-                results["success"] += 1
-                results["details"].append({
-                    "order_id": order_id,
-                    "order_number": shopify_order.get("name"),
-                    "invoice": invoice.name,
-                    "status": "success",
-                    "delivery_note": dn
-                })
+            if tracking_info:
+                # Order already shipped - create DN with tracking, DON'T send to ShipStation
+                dn_name = _create_delivery_note_with_tracking(
+                    shopify_order, store, invoice_doc, tracking_info, store_name
+                )
+                if dn_name:
+                    results["success"] += 1
+                    results["details"].append({
+                        "order_id": order_id,
+                        "order_number": shopify_order.get("name"),
+                        "invoice": invoice.name,
+                        "status": "success",
+                        "delivery_note": dn_name,
+                        "note": f"Already shipped - Tracking: {tracking_info.get('tracking_number')}"
+                    })
+                else:
+                    results["failed"] += 1
+                    results["details"].append({
+                        "order_id": order_id,
+                        "order_number": shopify_order.get("name"),
+                        "status": "failed",
+                        "reason": "Failed to create DN with tracking"
+                    })
             else:
-                results["failed"] += 1
-                results["details"].append({
-                    "order_id": order_id,
-                    "order_number": shopify_order.get("name"),
-                    "status": "failed",
-                    "reason": "Delivery Note not created"
-                })
+                # No tracking yet - use normal flow (sends to ShipStation)
+                create_delivery_note(shopify_order, store, invoice_doc, store_name=store_name)
+                
+                # Verify DN was created
+                dn = frappe.db.get_value(
+                    "Delivery Note",
+                    {ORDER_ID_FIELD: cstr(order_id), "docstatus": ["!=", 2]},
+                    "name"
+                )
+                
+                if dn:
+                    results["success"] += 1
+                    results["details"].append({
+                        "order_id": order_id,
+                        "order_number": shopify_order.get("name"),
+                        "invoice": invoice.name,
+                        "status": "success",
+                        "delivery_note": dn,
+                        "note": "Sent to ShipStation for shipping"
+                    })
+                else:
+                    results["failed"] += 1
+                    results["details"].append({
+                        "order_id": order_id,
+                        "order_number": shopify_order.get("name"),
+                        "status": "failed",
+                        "reason": "Delivery Note not created"
+                    })
             
             frappe.db.commit()
             
@@ -900,6 +927,80 @@ def fix_missing_tracking(store_name, order_ids=None):
 
 
 # Helper functions
+
+def _create_delivery_note_with_tracking(shopify_order, setting, invoice, tracking_info, store_name=None):
+    """Create Delivery Note with tracking info WITHOUT sending to ShipStation.
+    
+    Use this when the order is already shipped in Shopify - we just need to 
+    record the DN and tracking in ERPNext, not create a new shipment.
+    
+    Args:
+        shopify_order: Shopify order data with fulfillments
+        setting: Shopify Store settings
+        invoice: Sales Invoice document
+        tracking_info: Dict with tracking_number and carrier
+        store_name: Store name for multi-store support
+    
+    Returns:
+        str: Delivery Note name if created, None otherwise
+    """
+    from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_delivery_note
+    from ecommerce_integrations_multistore.shopify.constants import (
+        FULLFILLMENT_ID_FIELD,
+        STORE_LINK_FIELD,
+    )
+    
+    fulfillments = shopify_order.get("fulfillments", [])
+    if not fulfillments:
+        return None
+    
+    # Use first fulfillment
+    fulfillment = fulfillments[0]
+    
+    try:
+        # Create DN from invoice
+        dn = make_delivery_note(invoice.name)
+        
+        # Set Shopify fields
+        setattr(dn, ORDER_ID_FIELD, cstr(shopify_order.get("id")))
+        setattr(dn, ORDER_NUMBER_FIELD, shopify_order.get("name"))
+        setattr(dn, FULLFILLMENT_ID_FIELD, fulfillment.get("id"))
+        
+        # Set store reference
+        if store_name:
+            setattr(dn, STORE_LINK_FIELD, store_name)
+        
+        # Set posting date from fulfillment
+        dn.set_posting_time = 1
+        dn.posting_date = getdate(fulfillment.get("created_at"))
+        dn.naming_series = setting.delivery_note_series or "DN-Shopify-"
+        
+        # Set tracking info directly (already shipped, no ShipStation needed)
+        if tracking_info:
+            dn.custom_shipstation_tracking_number = tracking_info.get("tracking_number")
+            dn.custom_shipstation_carrier = tracking_info.get("carrier")
+        
+        dn.flags.ignore_mandatory = True
+        dn.save(ignore_permissions=True)
+        dn.submit()
+        
+        # Add comment indicating this was already shipped
+        dn.add_comment(
+            comment_type="Info",
+            text=f"Delivery Note created from reconciliation. Order was already shipped in Shopify. Tracking: {tracking_info.get('tracking_number')} via {tracking_info.get('carrier')}"
+        )
+        
+        frappe.db.commit()
+        
+        return dn.name
+        
+    except Exception as e:
+        frappe.log_error(
+            message=f"Failed to create DN with tracking for order {shopify_order.get('name')}: {str(e)}",
+            title="Reconciliation - Create DN Failed"
+        )
+        return None
+
 
 def _fetch_shopify_orders_for_reconciliation(store_name, date_from, date_to, order_from=None, order_to=None):
     """Fetch orders from Shopify for reconciliation.
