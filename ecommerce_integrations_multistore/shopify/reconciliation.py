@@ -164,10 +164,10 @@ def reconcile_shopify_orders(
                 dn = frappe.db.get_value(
                     "Delivery Note",
                     {ORDER_ID_FIELD: order_id, "docstatus": ["!=", 2]},
-                    ["name", "tracking_number", "carrier"],
+                    ["name", "custom_shipstation_tracking_number"],
                     as_dict=True
                 )
-                if dn and not dn.tracking_number:
+                if dn and not dn.custom_shipstation_tracking_number:
                     # Get tracking from Shopify
                     shopify_tracking = _get_shopify_tracking(order)
                     if shopify_tracking:
@@ -581,7 +581,7 @@ def fix_missing_tracking(store_name, order_ids=None):
             dn = frappe.db.get_value(
                 "Delivery Note",
                 {ORDER_ID_FIELD: cstr(order_id), "docstatus": ["!=", 2]},
-                ["name", "tracking_number"],
+                ["name", "custom_shipstation_tracking_number"],
                 as_dict=True
             )
             
@@ -594,7 +594,7 @@ def fix_missing_tracking(store_name, order_ids=None):
                 })
                 continue
             
-            if dn.tracking_number:
+            if dn.custom_shipstation_tracking_number:
                 results["skipped"] += 1
                 results["details"].append({
                     "order_id": order_id,
@@ -628,13 +628,13 @@ def fix_missing_tracking(store_name, order_ids=None):
                 })
                 continue
             
-            # Update delivery note
+            # Update delivery note with tracking
             frappe.db.set_value(
                 "Delivery Note",
                 dn.name,
                 {
-                    "tracking_number": tracking_info.get("tracking_number"),
-                    "carrier": tracking_info.get("carrier")
+                    "custom_shipstation_tracking_number": tracking_info.get("tracking_number"),
+                    "custom_shipstation_carrier": tracking_info.get("carrier")
                 }
             )
             
