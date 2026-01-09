@@ -87,90 +87,7 @@ frappe.ui.form.on('Shopify Store', {
 
 			// Reconcile Orders button
 			frm.add_custom_button(__('Reconcile Orders'), function() {
-				frappe.prompt([
-					{
-						fieldname: 'date_from',
-						label: __('Date From'),
-						fieldtype: 'Date',
-						default: frappe.datetime.add_days(frappe.datetime.nowdate(), -30),
-						reqd: 1
-					},
-					{
-						fieldname: 'date_to',
-						label: __('Date To'),
-						fieldtype: 'Date',
-						default: frappe.datetime.nowdate(),
-						reqd: 1
-					},
-					{
-						fieldtype: 'Column Break'
-					},
-					{
-						fieldname: 'order_from',
-						label: __('Order Number From (optional)'),
-						fieldtype: 'Data',
-						description: __('e.g., RLR150000')
-					},
-					{
-						fieldname: 'order_to',
-						label: __('Order Number To (optional)'),
-						fieldtype: 'Data',
-						description: __('e.g., RLR151000')
-					},
-					{
-						fieldtype: 'Section Break',
-						label: __('What to Check')
-					},
-					{
-						fieldname: 'check_invoices',
-						label: __('Missing Invoices'),
-						fieldtype: 'Check',
-						default: 1
-					},
-					{
-						fieldname: 'check_payments',
-						label: __('Missing Payments'),
-						fieldtype: 'Check',
-						default: 1
-					},
-					{
-						fieldtype: 'Column Break'
-					},
-					{
-						fieldname: 'check_delivery_notes',
-						label: __('Missing Delivery Notes'),
-						fieldtype: 'Check',
-						default: 1
-					},
-					{
-						fieldname: 'check_tracking',
-						label: __('Missing Tracking'),
-						fieldtype: 'Check',
-						default: 1
-					}
-				], function(values) {
-					frappe.call({
-						method: 'ecommerce_integrations_multistore.shopify.reconciliation.reconcile_shopify_orders',
-						args: {
-							store_name: frm.doc.name,
-							date_from: values.date_from,
-							date_to: values.date_to,
-							order_from: values.order_from,
-							order_to: values.order_to,
-							check_invoices: values.check_invoices,
-							check_payments: values.check_payments,
-							check_delivery_notes: values.check_delivery_notes,
-							check_tracking: values.check_tracking
-						},
-						freeze: true,
-						freeze_message: __('Fetching orders from Shopify and comparing...'),
-						callback: function(r) {
-							if (!r.exc && r.message) {
-								show_reconciliation_results(frm, r.message);
-							}
-						}
-					});
-				}, __('Reconcile Shopify Orders'), __('Run'));
+				show_reconciliation_dialog(frm);
 			}, __('Actions'));
 		}
 		
@@ -264,171 +181,273 @@ frappe.ui.form.on('Shopify Store', {
 	}
 });
 
-// Reconciliation results dialog
-function show_reconciliation_results(frm, data) {
-	let summary = data.summary;
-	let total_issues = summary.missing_invoices_count + summary.missing_payments_count + 
-		summary.missing_delivery_notes_count + summary.missing_tracking_count;
-	
-	if (total_issues === 0) {
-		frappe.msgprint({
-			title: __('Reconciliation Complete'),
-			indicator: 'green',
-			message: __('All {0} orders are in sync! No issues found.', [summary.total_orders_checked])
-		});
-		return;
-	}
-	
-	// Build HTML for results
-	let html = `
-		<div class="reconciliation-results">
-			<div class="alert alert-info">
-				<strong>${__('Orders Checked')}:</strong> ${summary.total_orders_checked}<br>
-				<strong>${__('Date Range')}:</strong> ${data.date_from} to ${data.date_to}
-			</div>
-			
-			<h5>${__('Issues Found')}</h5>
-			<table class="table table-bordered">
-				<thead>
-					<tr>
-						<th>${__('Issue Type')}</th>
-						<th>${__('Count')}</th>
-						<th>${__('Action')}</th>
-					</tr>
-				</thead>
-				<tbody>
-	`;
-	
-	if (summary.missing_invoices_count > 0) {
-		html += `
-			<tr>
-				<td><strong>${__('Missing Invoices')}</strong><br>
-					<small class="text-muted">${__('Paid orders without Sales Invoice')}</small></td>
-				<td class="text-center"><span class="badge badge-danger">${summary.missing_invoices_count}</span></td>
-				<td><button class="btn btn-xs btn-primary fix-invoices-btn">${__('Create All')}</button>
-					<button class="btn btn-xs btn-default view-invoices-btn">${__('View')}</button></td>
-			</tr>
-		`;
-	}
-	
-	// NEW: Draft invoices that need full processing
-	if (summary.draft_invoices_count > 0) {
-		html += `
-			<tr>
-				<td><strong>${__('Draft Invoices')}</strong><br>
-					<small class="text-muted">${__('Paid/shipped orders with unsubmitted invoices - will submit, create payment & DN')}</small></td>
-				<td class="text-center"><span class="badge badge-danger">${summary.draft_invoices_count}</span></td>
-				<td><button class="btn btn-xs btn-primary fix-drafts-btn">${__('Process All')}</button>
-					<button class="btn btn-xs btn-default view-drafts-btn">${__('View')}</button></td>
-			</tr>
-		`;
-	}
-	
-	if (summary.missing_payments_count > 0) {
-		html += `
-			<tr>
-				<td><strong>${__('Missing Payments')}</strong><br>
-					<small class="text-muted">${__('Submitted invoices with outstanding balance')}</small></td>
-				<td class="text-center"><span class="badge badge-warning">${summary.missing_payments_count}</span></td>
-				<td><button class="btn btn-xs btn-primary fix-payments-btn">${__('Create All')}</button>
-					<button class="btn btn-xs btn-default view-payments-btn">${__('View')}</button></td>
-			</tr>
-		`;
-	}
-	
-	if (summary.missing_delivery_notes_count > 0) {
-		html += `
-			<tr>
-				<td><strong>${__('Missing Delivery Notes')}</strong><br>
-					<small class="text-muted">${__('Fulfilled orders without Delivery Note')}</small></td>
-				<td class="text-center"><span class="badge badge-info">${summary.missing_delivery_notes_count}</span></td>
-				<td><button class="btn btn-xs btn-primary fix-dns-btn">${__('Create All')}</button>
-					<button class="btn btn-xs btn-default view-dns-btn">${__('View')}</button></td>
-			</tr>
-		`;
-	}
-	
-	if (summary.missing_tracking_count > 0) {
-		html += `
-			<tr>
-				<td><strong>${__('Missing Tracking')}</strong><br>
-					<small class="text-muted">${__('Delivery Notes without tracking info')}</small></td>
-				<td class="text-center"><span class="badge badge-secondary">${summary.missing_tracking_count}</span></td>
-				<td><button class="btn btn-xs btn-primary fix-tracking-btn">${__('Sync All')}</button>
-					<button class="btn btn-xs btn-default view-tracking-btn">${__('View')}</button></td>
-			</tr>
-		`;
-	}
-	
-	html += `
-				</tbody>
-			</table>
-		</div>
-	`;
-	
+// Unified Reconciliation Dialog - search and results in one place
+function show_reconciliation_dialog(frm) {
 	let d = new frappe.ui.Dialog({
-		title: __('Reconciliation Results'),
-		size: 'large',
+		title: __('Reconcile Shopify Orders'),
+		size: 'extra-large',
 		fields: [
+			// Search Section
+			{
+				fieldtype: 'Section Break',
+				label: __('Search Criteria')
+			},
+			{
+				fieldname: 'date_from',
+				label: __('Date From'),
+				fieldtype: 'Date',
+				default: frappe.datetime.add_days(frappe.datetime.nowdate(), -30),
+				reqd: 1
+			},
+			{
+				fieldname: 'date_to',
+				label: __('Date To'),
+				fieldtype: 'Date',
+				default: frappe.datetime.nowdate(),
+				reqd: 1
+			},
+			{
+				fieldtype: 'Column Break'
+			},
+			{
+				fieldname: 'order_from',
+				label: __('Order Number From'),
+				fieldtype: 'Data',
+				description: __('e.g., RLR150000 (optional)')
+			},
+			{
+				fieldname: 'order_to',
+				label: __('Order Number To'),
+				fieldtype: 'Data',
+				description: __('e.g., RLR151000 (optional)')
+			},
+			{
+				fieldtype: 'Section Break',
+				label: __('What to Check')
+			},
+			{
+				fieldname: 'check_invoices',
+				label: __('Missing Invoices'),
+				fieldtype: 'Check',
+				default: 1
+			},
+			{
+				fieldname: 'check_payments',
+				label: __('Missing Payments'),
+				fieldtype: 'Check',
+				default: 1
+			},
+			{
+				fieldtype: 'Column Break'
+			},
+			{
+				fieldname: 'check_delivery_notes',
+				label: __('Missing Delivery Notes'),
+				fieldtype: 'Check',
+				default: 1
+			},
+			{
+				fieldname: 'check_tracking',
+				label: __('Missing Tracking'),
+				fieldtype: 'Check',
+				default: 1
+			},
+			{
+				fieldtype: 'Section Break',
+				label: __('Results'),
+				fieldname: 'results_section',
+				hidden: 1
+			},
 			{
 				fieldtype: 'HTML',
 				fieldname: 'results_html'
 			}
-		]
+		],
+		primary_action_label: __('Search'),
+		primary_action: function() {
+			run_reconciliation_search(d, frm);
+		}
 	});
 	
-	d.fields_dict.results_html.$wrapper.html(html);
-	
-	// Store data for fix buttons
-	d.reconciliation_data = data;
+	// Store reference
 	d.store_name = frm.doc.name;
-	
-	// Bind button events
-	d.$wrapper.find('.fix-invoices-btn').on('click', function() {
-		fix_missing_items(d, 'invoices', data.missing_invoices);
-	});
-	
-	d.$wrapper.find('.fix-drafts-btn').on('click', function() {
-		fix_missing_items(d, 'draft_invoices', data.draft_invoices);
-	});
-	
-	d.$wrapper.find('.fix-payments-btn').on('click', function() {
-		fix_missing_items(d, 'payments', data.missing_payments);
-	});
-	
-	d.$wrapper.find('.fix-dns-btn').on('click', function() {
-		fix_missing_items(d, 'delivery_notes', data.missing_delivery_notes);
-	});
-	
-	d.$wrapper.find('.fix-tracking-btn').on('click', function() {
-		fix_missing_items(d, 'tracking', data.missing_tracking);
-	});
-	
-	// View buttons
-	d.$wrapper.find('.view-invoices-btn').on('click', function() {
-		show_details_dialog('Missing Invoices', data.missing_invoices);
-	});
-	
-	d.$wrapper.find('.view-drafts-btn').on('click', function() {
-		show_details_dialog('Draft Invoices', data.draft_invoices);
-	});
-	
-	d.$wrapper.find('.view-payments-btn').on('click', function() {
-		show_details_dialog('Missing Payments', data.missing_payments);
-	});
-	
-	d.$wrapper.find('.view-dns-btn').on('click', function() {
-		show_details_dialog('Missing Delivery Notes', data.missing_delivery_notes);
-	});
-	
-	d.$wrapper.find('.view-tracking-btn').on('click', function() {
-		show_details_dialog('Missing Tracking', data.missing_tracking);
-	});
+	d.reconciliation_data = null;
 	
 	d.show();
 }
 
-function fix_missing_items(dialog, fix_type, items) {
+function run_reconciliation_search(dialog, frm) {
+	let values = dialog.get_values();
+	
+	frappe.call({
+		method: 'ecommerce_integrations_multistore.shopify.reconciliation.reconcile_shopify_orders',
+		args: {
+			store_name: frm.doc.name,
+			date_from: values.date_from,
+			date_to: values.date_to,
+			order_from: values.order_from,
+			order_to: values.order_to,
+			check_invoices: values.check_invoices,
+			check_payments: values.check_payments,
+			check_delivery_notes: values.check_delivery_notes,
+			check_tracking: values.check_tracking
+		},
+		freeze: true,
+		freeze_message: __('Fetching orders from Shopify and comparing...'),
+		callback: function(r) {
+			if (!r.exc && r.message) {
+				display_reconciliation_results(dialog, r.message);
+			}
+		}
+	});
+}
+
+function display_reconciliation_results(dialog, data) {
+	let summary = data.summary;
+	let total_issues = (summary.missing_invoices_count || 0) + 
+		(summary.draft_invoices_count || 0) +
+		(summary.missing_payments_count || 0) + 
+		(summary.missing_delivery_notes_count || 0) + 
+		(summary.missing_tracking_count || 0);
+	
+	// Show results section
+	dialog.set_df_property('results_section', 'hidden', 0);
+	
+	// Store data for fix buttons
+	dialog.reconciliation_data = data;
+	
+	let html = '';
+	
+	if (total_issues === 0) {
+		html = `
+			<div class="alert alert-success">
+				<strong>${__('All Clear!')}</strong> ${__('All {0} orders are in sync. No issues found.', [summary.total_orders_checked])}
+			</div>
+		`;
+	} else {
+		html = `
+			<div class="alert alert-info" style="margin-bottom: 15px;">
+				<strong>${__('Orders Checked')}:</strong> ${summary.total_orders_checked}
+				${data.order_from ? ' | <strong>' + __('Order Range') + ':</strong> ' + data.order_from + ' - ' + (data.order_to || data.order_from) : ''}
+			</div>
+			
+			<table class="table table-bordered">
+				<thead>
+					<tr>
+						<th>${__('Issue Type')}</th>
+						<th style="width: 80px; text-align: center;">${__('Count')}</th>
+						<th style="width: 180px;">${__('Action')}</th>
+					</tr>
+				</thead>
+				<tbody>
+		`;
+		
+		if (summary.missing_invoices_count > 0) {
+			html += `
+				<tr data-type="invoices">
+					<td><strong>${__('Missing Invoices')}</strong><br>
+						<small class="text-muted">${__('Paid orders without Sales Invoice')}</small></td>
+					<td class="text-center"><span class="badge badge-danger">${summary.missing_invoices_count}</span></td>
+					<td><button class="btn btn-xs btn-primary fix-btn" data-type="invoices">${__('Create All')}</button>
+						<button class="btn btn-xs btn-default view-btn" data-type="invoices">${__('View')}</button></td>
+				</tr>
+			`;
+		}
+		
+		if (summary.draft_invoices_count > 0) {
+			html += `
+				<tr data-type="draft_invoices">
+					<td><strong>${__('Draft Invoices')}</strong><br>
+						<small class="text-muted">${__('Paid/shipped orders stuck as drafts')}</small></td>
+					<td class="text-center"><span class="badge badge-danger">${summary.draft_invoices_count}</span></td>
+					<td><button class="btn btn-xs btn-primary fix-btn" data-type="draft_invoices">${__('Process All')}</button>
+						<button class="btn btn-xs btn-default view-btn" data-type="draft_invoices">${__('View')}</button></td>
+				</tr>
+			`;
+		}
+		
+		if (summary.missing_payments_count > 0) {
+			html += `
+				<tr data-type="payments">
+					<td><strong>${__('Missing Payments')}</strong><br>
+						<small class="text-muted">${__('Submitted invoices with outstanding balance')}</small></td>
+					<td class="text-center"><span class="badge badge-warning">${summary.missing_payments_count}</span></td>
+					<td><button class="btn btn-xs btn-primary fix-btn" data-type="payments">${__('Create All')}</button>
+						<button class="btn btn-xs btn-default view-btn" data-type="payments">${__('View')}</button></td>
+				</tr>
+			`;
+		}
+		
+		if (summary.missing_delivery_notes_count > 0) {
+			html += `
+				<tr data-type="delivery_notes">
+					<td><strong>${__('Missing Delivery Notes')}</strong><br>
+						<small class="text-muted">${__('Fulfilled orders without Delivery Note')}</small></td>
+					<td class="text-center"><span class="badge badge-info">${summary.missing_delivery_notes_count}</span></td>
+					<td><button class="btn btn-xs btn-primary fix-btn" data-type="delivery_notes">${__('Create All')}</button>
+						<button class="btn btn-xs btn-default view-btn" data-type="delivery_notes">${__('View')}</button></td>
+				</tr>
+			`;
+		}
+		
+		if (summary.missing_tracking_count > 0) {
+			html += `
+				<tr data-type="tracking">
+					<td><strong>${__('Missing Tracking')}</strong><br>
+						<small class="text-muted">${__('Delivery Notes without tracking info')}</small></td>
+					<td class="text-center"><span class="badge badge-secondary">${summary.missing_tracking_count}</span></td>
+					<td><button class="btn btn-xs btn-primary fix-btn" data-type="tracking">${__('Sync All')}</button>
+						<button class="btn btn-xs btn-default view-btn" data-type="tracking">${__('View')}</button></td>
+				</tr>
+			`;
+		}
+		
+		html += `
+				</tbody>
+			</table>
+		`;
+	}
+	
+	dialog.fields_dict.results_html.$wrapper.html(html);
+	
+	// Bind fix buttons
+	dialog.$wrapper.find('.fix-btn').off('click').on('click', function() {
+		let fix_type = $(this).data('type');
+		fix_reconciliation_items(dialog, fix_type);
+	});
+	
+	// Bind view buttons
+	dialog.$wrapper.find('.view-btn').off('click').on('click', function() {
+		let fix_type = $(this).data('type');
+		let type_labels = {
+			'invoices': 'Missing Invoices',
+			'draft_invoices': 'Draft Invoices',
+			'payments': 'Missing Payments',
+			'delivery_notes': 'Missing Delivery Notes',
+			'tracking': 'Missing Tracking'
+		};
+		let data_keys = {
+			'invoices': 'missing_invoices',
+			'draft_invoices': 'draft_invoices',
+			'payments': 'missing_payments',
+			'delivery_notes': 'missing_delivery_notes',
+			'tracking': 'missing_tracking'
+		};
+		show_details_dialog(type_labels[fix_type], dialog.reconciliation_data[data_keys[fix_type]]);
+	});
+}
+
+function fix_reconciliation_items(dialog, fix_type) {
+	let data_keys = {
+		'invoices': 'missing_invoices',
+		'draft_invoices': 'draft_invoices',
+		'payments': 'missing_payments',
+		'delivery_notes': 'missing_delivery_notes',
+		'tracking': 'missing_tracking'
+	};
+	
+	let items = dialog.reconciliation_data[data_keys[fix_type]];
+	
 	if (!items || items.length === 0) {
 		frappe.msgprint(__('No items to fix'));
 		return;
@@ -467,99 +486,74 @@ function fix_missing_items(dialog, fix_type, items) {
 						let result = r.message;
 						let indicator = result.failed === 0 ? 'green' : (result.success > 0 ? 'orange' : 'red');
 						
-						// Build message with failure details
-						let msg = __('Success: {0}, Failed: {1}, Skipped: {2}', 
-							[result.success, result.failed, result.skipped || 0]);
-						
-						// Add success details for draft invoices (shows what was created)
-						if (result.success > 0 && result.details && fix_type === 'draft_invoices') {
-							msg += '<br><br><strong>' + __('Processed') + ':</strong><br>';
-							msg += '<table class="table table-sm table-bordered" style="margin-top:10px">';
-							msg += '<thead><tr><th>Order</th><th>Created</th></tr></thead><tbody>';
-							result.details.forEach(function(d) {
-								if (d.status === 'success') {
-									msg += '<tr><td>' + (d.order_number || d.order_id) + '</td>';
-									msg += '<td>' + (d.created || '') + '</td></tr>';
-								}
-							});
-							msg += '</tbody></table>';
-						}
-						
-						// Add failure details if any
-						if (result.failed > 0 && result.details) {
-							msg += '<br><br><strong>' + __('Failure Details') + ':</strong><br>';
-							msg += '<table class="table table-sm table-bordered" style="margin-top:10px">';
-							msg += '<thead><tr><th>Order</th><th>Reason</th></tr></thead><tbody>';
-							result.details.forEach(function(d) {
-								if (d.status === 'failed') {
-									msg += '<tr><td>' + (d.order_number || d.order_id) + '</td>';
-									msg += '<td>' + (d.reason || 'Unknown error') + '</td></tr>';
-								}
-							});
-							msg += '</tbody></table>';
-						}
-						
-						// Show results as toast notification instead of modal
+						// Show toast notification
 						frappe.show_alert({
-							message: __('Success: {0}, Failed: {1}', [result.success, result.failed]),
+							message: __('Success: {0}, Failed: {1}, Skipped: {2}', 
+								[result.success, result.failed, result.skipped || 0]),
 							indicator: indicator
 						}, 5);
 						
-						// Update the counts in the dialog instead of closing it
-						update_reconciliation_counts(dialog, fix_type, result.success);
+						// Update the row in the results table
+						let $row = dialog.$wrapper.find('tr[data-type="' + fix_type + '"]');
+						let new_count = items.length - result.success;
 						
-						// Show detailed results in a separate dialog if there were failures
-						if (result.failed > 0) {
-							frappe.msgprint({
-								title: __('Fix Complete - Some Failed'),
-								indicator: indicator,
-								message: msg
-							});
+						if (new_count <= 0) {
+							$row.fadeOut(300, function() { $(this).remove(); });
+						} else {
+							$row.find('.badge').text(new_count);
+						}
+						
+						// Update the stored data
+						dialog.reconciliation_data[data_keys[fix_type]] = items.slice(result.success);
+						if (dialog.reconciliation_data.summary[data_keys[fix_type] + '_count'] !== undefined) {
+							dialog.reconciliation_data.summary[data_keys[fix_type] + '_count'] = new_count;
+						}
+						
+						// Show detailed results if there were failures or for draft invoices
+						if (result.failed > 0 || (fix_type === 'draft_invoices' && result.success > 0)) {
+							let msg = '';
+							
+							// Show what was created for draft invoices
+							if (result.success > 0 && result.details && fix_type === 'draft_invoices') {
+								msg += '<strong>' + __('Processed') + ':</strong><br>';
+								msg += '<table class="table table-sm table-bordered" style="margin-top:10px">';
+								msg += '<thead><tr><th>Order</th><th>Created</th></tr></thead><tbody>';
+								result.details.forEach(function(d) {
+									if (d.status === 'success') {
+										msg += '<tr><td>' + (d.order_number || d.order_id) + '</td>';
+										msg += '<td>' + (d.created || '') + '</td></tr>';
+									}
+								});
+								msg += '</tbody></table>';
+							}
+							
+							// Show failures
+							if (result.failed > 0 && result.details) {
+								msg += '<br><strong>' + __('Failures') + ':</strong><br>';
+								msg += '<table class="table table-sm table-bordered" style="margin-top:10px">';
+								msg += '<thead><tr><th>Order</th><th>Reason</th></tr></thead><tbody>';
+								result.details.forEach(function(d) {
+									if (d.status === 'failed') {
+										msg += '<tr><td>' + (d.order_number || d.order_id) + '</td>';
+										msg += '<td>' + (d.reason || 'Unknown error') + '</td></tr>';
+									}
+								});
+								msg += '</tbody></table>';
+							}
+							
+							if (msg) {
+								frappe.msgprint({
+									title: __('Processing Details'),
+									indicator: indicator,
+									message: msg
+								});
+							}
 						}
 					}
 				}
 			});
 		}
 	);
-}
-
-function update_reconciliation_counts(dialog, fix_type, success_count) {
-	// Map fix_type to the data array and badge selector
-	let type_map = {
-		'invoices': { array: 'missing_invoices', badge: '.fix-invoices-btn' },
-		'draft_invoices': { array: 'draft_invoices', badge: '.fix-drafts-btn' },
-		'payments': { array: 'missing_payments', badge: '.fix-payments-btn' },
-		'delivery_notes': { array: 'missing_delivery_notes', badge: '.fix-dns-btn' },
-		'tracking': { array: 'missing_tracking', badge: '.fix-tracking-btn' }
-	};
-	
-	let config = type_map[fix_type];
-	if (!config || !dialog.reconciliation_data) return;
-	
-	// Remove processed items from the data array
-	let data = dialog.reconciliation_data;
-	if (data[config.array]) {
-		// Remove the first N items that were processed
-		data[config.array] = data[config.array].slice(success_count);
-		
-		// Update the summary count
-		let count_key = config.array + '_count';
-		if (data.summary[count_key] !== undefined) {
-			data.summary[count_key] = Math.max(0, data.summary[count_key] - success_count);
-		}
-		
-		// Update the badge in the UI
-		let $row = dialog.$wrapper.find(config.badge).closest('tr');
-		let new_count = data[config.array].length;
-		
-		if (new_count === 0) {
-			// Remove the row if no more items
-			$row.fadeOut(300, function() { $(this).remove(); });
-		} else {
-			// Update the badge count
-			$row.find('.badge').text(new_count);
-		}
-	}
 }
 
 function show_details_dialog(title, items) {
