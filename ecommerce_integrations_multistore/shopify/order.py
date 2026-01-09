@@ -103,15 +103,18 @@ def sync_sales_order(payload, request_id=None, store_name=None, bypass_cutoff=Fa
 				)
 				return
 
-	# Check if invoice already exists for this store
-	existing_invoice_filters = {ORDER_ID_FIELD: cstr(order["id"])}
-	if store_name:
-		existing_invoice_filters[STORE_LINK_FIELD] = store_name
+	# Check if invoice already exists - check by ORDER ID ONLY to prevent duplicates
+	# Do NOT filter by store - the same Shopify order should never create multiple invoices
+	existing_invoice = frappe.db.get_value(
+		"Sales Invoice", 
+		{ORDER_ID_FIELD: cstr(order["id"])},
+		"name"
+	)
 	
-	if frappe.db.get_value("Sales Invoice", filters=existing_invoice_filters):
+	if existing_invoice:
 		create_shopify_log(
 			status="Invalid", 
-			message=f"Sales invoice already exists for order {order.get('name')} in store {store_name}, not synced",
+			message=f"Sales invoice {existing_invoice} already exists for order {order.get('name')} (ID: {order['id']}), not synced",
 			store_name=store_name
 		)
 		return

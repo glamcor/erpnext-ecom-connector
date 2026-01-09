@@ -231,11 +231,29 @@ def fix_missing_invoices(store_name, order_ids=None):
     results = {
         "success": 0,
         "failed": 0,
+        "skipped": 0,
         "details": []
     }
     
     for order_id in order_ids:
         try:
+            # CRITICAL: Check if invoice already exists BEFORE doing anything
+            # Check by order ID only (not store) to catch ALL existing invoices
+            existing_invoice = frappe.db.get_value(
+                "Sales Invoice",
+                {ORDER_ID_FIELD: cstr(order_id)},
+                "name"
+            )
+            
+            if existing_invoice:
+                results["skipped"] += 1
+                results["details"].append({
+                    "order_id": order_id,
+                    "status": "skipped",
+                    "reason": f"Invoice {existing_invoice} already exists"
+                })
+                continue
+            
             # Fetch order from Shopify
             shopify_order = _fetch_single_order(store_name, order_id)
             if not shopify_order:
