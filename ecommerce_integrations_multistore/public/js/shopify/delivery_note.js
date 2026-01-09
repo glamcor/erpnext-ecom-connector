@@ -3,10 +3,17 @@
 
 frappe.ui.form.on('Delivery Note', {
 	refresh: function(frm) {
-		// Only show buttons for submitted Delivery Notes with ShipStation integration
-		if (frm.doc.docstatus === 1 && frm.doc.custom_shipstation_shipment_id) {
+		// Get ShipStation fields (may have custom_ prefix or not depending on how they were created)
+		let shipstation_id = frm.doc.custom_shipstation_shipment_id || frm.doc.shipstation_shipment_id;
+		let tracking_number = frm.doc.custom_shipstation_tracking_number || frm.doc.shipstation_tracking_number;
+		let carrier = frm.doc.custom_shipstation_carrier || frm.doc.shipstation_carrier;
+		
+		// Show buttons for submitted Delivery Notes that are from Shopify OR have ShipStation ID
+		let is_shopify_dn = frm.doc.shopify_order_id || frm.doc.custom_shopify_order_id;
+		
+		if (frm.doc.docstatus === 1 && (shipstation_id || is_shopify_dn)) {
 			// Check if tracking is missing
-			if (!frm.doc.custom_shipstation_tracking_number) {
+			if (!tracking_number) {
 				frm.add_custom_button(__('Sync Tracking from ShipStation'), function() {
 					frappe.call({
 						method: 'ecommerce_integrations_multistore.shopify.shipstation_webhook.manually_sync_shipstation_tracking',
@@ -46,14 +53,14 @@ frappe.ui.form.on('Delivery Note', {
 						label: __('Tracking Number'),
 						fieldtype: 'Data',
 						reqd: 1,
-						default: frm.doc.custom_shipstation_tracking_number || ''
+						default: tracking_number || ''
 					},
 					{
 						fieldname: 'carrier',
 						label: __('Carrier'),
 						fieldtype: 'Select',
 						options: '\nUPS\nUSPS\nFedEx\nDHL\nDHL Express\nOther',
-						default: frm.doc.custom_shipstation_carrier || ''
+						default: carrier || ''
 					}
 				], function(values) {
 					frappe.call({
@@ -89,9 +96,10 @@ frappe.ui.form.on('Delivery Note', {
 		}
 		
 		// Show tracking info if available
-		if (frm.doc.custom_shipstation_tracking_number) {
+		let display_tracking = frm.doc.custom_shipstation_tracking_number || frm.doc.shipstation_tracking_number;
+		if (display_tracking) {
 			frm.dashboard.add_indicator(
-				__('Tracking: {0}', [frm.doc.custom_shipstation_tracking_number]),
+				__('Tracking: {0}', [display_tracking]),
 				'green'
 			);
 		}
