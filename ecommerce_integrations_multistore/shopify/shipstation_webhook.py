@@ -92,8 +92,8 @@ def fetch_shipment_from_url(resource_url):
 		
 		# V2 Labels API returns {"labels": [...]}
 		if "labels" in data and data["labels"]:
-			# Return the first label (most shipments have one label)
-			return data["labels"][0]
+			# Return ALL labels for batch processing
+			return data["labels"]
 		else:
 			frappe.log_error(
 				message=f"No labels found in response for shipment {shipment_id}",
@@ -151,7 +151,32 @@ def handle_shipstation_webhook():
 			shipment_data = fetch_shipment_from_url(resource_url)
 			
 			if shipment_data:
-				handle_shipment_shipped(shipment_data)
+				# shipment_data can be a list (batch) or single dict
+				if isinstance(shipment_data, list):
+					# Process ALL labels in the batch
+					frappe.log_error(
+						message=f"Processing batch of {len(shipment_data)} labels",
+						title="ShipStation Webhook - Batch Processing"
+					)
+					success_count = 0
+					fail_count = 0
+					for label_data in shipment_data:
+						try:
+							handle_shipment_shipped(label_data)
+							success_count += 1
+						except Exception as label_error:
+							fail_count += 1
+							frappe.log_error(
+								message=f"Failed to process label in batch: {str(label_error)}\nLabel data: {frappe.as_json(label_data, indent=2)}",
+								title="ShipStation Webhook - Batch Label Failed"
+							)
+					frappe.log_error(
+						message=f"Batch processing complete. Success: {success_count}, Failed: {fail_count}",
+						title="ShipStation Webhook - Batch Complete"
+					)
+				else:
+					# Single label
+					handle_shipment_shipped(shipment_data)
 			else:
 				frappe.log_error(
 					message=f"Failed to fetch shipment data from {resource_url}",
@@ -286,11 +311,20 @@ def handle_shipment_shipped(webhook_data):
 		delivery_note = None
 		
 		if shipment_id:
+			# Try custom_shipstation_shipment_id first (this is where we store it)
 			delivery_note = frappe.db.get_value(
 				"Delivery Note",
-				{"shipstation_shipment_id": shipment_id},
+				{"custom_shipstation_shipment_id": shipment_id},
 				"name"
 			)
+			
+			# Fallback to shipstation_shipment_id (without custom_ prefix)
+			if not delivery_note:
+				delivery_note = frappe.db.get_value(
+					"Delivery Note",
+					{"shipstation_shipment_id": shipment_id},
+					"name"
+				)
 		
 		if not delivery_note and external_shipment_id:
 			# Fallback to external ID (our Delivery Note name)
@@ -299,7 +333,7 @@ def handle_shipment_shipped(webhook_data):
 		
 		if not delivery_note:
 			frappe.log_error(
-				message=f"Delivery Note not found for ShipStation shipment {shipment_id} / {external_shipment_id}",
+				message=f"Delivery Note not found for ShipStation shipment {shipment_id} / {external_shipment_id}. Checked both custom_shipstation_shipment_id and shipstation_shipment_id fields.",
 				title="ShipStation Webhook - DN Not Found"
 			)
 			return
