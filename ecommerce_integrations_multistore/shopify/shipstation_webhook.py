@@ -426,11 +426,32 @@ def manually_sync_shipstation_tracking(delivery_note_name, tracking_number=None,
 			
 			frappe.db.commit()
 			
+			# Update Shopify with tracking info
+			shopify_order_id = dn.get("shopify_order_id")
+			shopify_store = dn.get(STORE_LINK_FIELD)
+			shopify_updated = False
+			
+			if shopify_order_id and shopify_store:
+				try:
+					update_shopify_with_tracking_direct(
+						shopify_order_id=shopify_order_id,
+						shopify_store=shopify_store,
+						tracking_number=tracking_number,
+						carrier=carrier
+					)
+					shopify_updated = True
+				except Exception as shopify_error:
+					frappe.log_error(
+						message=f"Failed to update Shopify for {delivery_note_name}: {str(shopify_error)}",
+						title="Manual Sync - Shopify Update Failed"
+					)
+			
 			return {
 				"success": True,
-				"message": f"Updated {delivery_note_name} with tracking {tracking_number}",
+				"message": f"Updated {delivery_note_name} with tracking {tracking_number}" + (" (Shopify updated)" if shopify_updated else " (Shopify update failed or not applicable)"),
 				"tracking_number": tracking_number,
-				"carrier": carrier
+				"carrier": carrier,
+				"shopify_updated": shopify_updated
 			}
 		
 		# No tracking provided - try to fetch from ShipStation
@@ -532,12 +553,33 @@ def manually_sync_shipstation_tracking(delivery_note_name, tracking_number=None,
 		
 		frappe.db.commit()
 		
+		# Update Shopify with tracking info
+		shopify_order_id = dn.get("shopify_order_id")
+		shopify_store = dn.get(STORE_LINK_FIELD)
+		shopify_updated = False
+		
+		if shopify_order_id and shopify_store and fetched_tracking:
+			try:
+				update_shopify_with_tracking_direct(
+					shopify_order_id=shopify_order_id,
+					shopify_store=shopify_store,
+					tracking_number=fetched_tracking,
+					carrier=fetched_carrier
+				)
+				shopify_updated = True
+			except Exception as shopify_error:
+				frappe.log_error(
+					message=f"Failed to update Shopify for {delivery_note_name}: {str(shopify_error)}",
+					title="Manual Sync - Shopify Update Failed"
+				)
+		
 		return {
 			"success": True,
-			"message": f"Successfully synced {delivery_note_name} from ShipStation",
+			"message": f"Successfully synced {delivery_note_name} from ShipStation" + (" (Shopify updated)" if shopify_updated else " (Shopify update pending)"),
 			"tracking_number": fetched_tracking,
 			"carrier": fetched_carrier,
-			"cost": cost
+			"cost": cost,
+			"shopify_updated": shopify_updated
 		}
 		
 	except Exception as e:
