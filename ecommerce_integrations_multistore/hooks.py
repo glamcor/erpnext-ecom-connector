@@ -179,6 +179,10 @@ scheduler_events = {
 	"weekly": [],
 	"monthly": [],
 	"cron": {
+		# Catch missed ShipStation webhook syncs every 15 minutes
+		"*/15 * * * *": [
+			"ecommerce_integrations_multistore.shopify.shipstation_webhook.scheduled_shipstation_tracking_sync",
+		],
 		# DISABLED: Unicommerce cron jobs not used
 		# "*/5 * * * *": [
 		# 	"ecommerce_integrations_multistore.unicommerce.order.sync_new_orders",

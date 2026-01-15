@@ -917,3 +917,76 @@ def create_shopify_fulfillment_v2(setting, order_id, tracking_number, carrier):
 			title="Shopify Tracking Update Error"
 		)
 
+
+def scheduled_shipstation_tracking_sync():
+	"""Scheduled job to catch missed ShipStation webhook syncs.
+	
+	Runs every 15 minutes to find Delivery Notes that:
+	1. Have a ShipStation shipment ID (were sent to ShipStation)
+	2. Are missing tracking info (webhook didn't sync back)
+	3. Are in "Cleared to Ship" workflow state (not yet marked shipped)
+	4. Were created more than 30 minutes ago (give webhooks time to arrive)
+	
+	This catches cases where:
+	- ShipStation webhook failed to fire
+	- Webhook was received but processing failed
+	- DN lookup failed due to field mismatch
+	"""
+	from frappe.utils import now_datetime, add_to_date
+	
+	frappe.set_user("Administrator")
+	
+	# Only look at DNs created more than 30 minutes ago (give webhooks time)
+	cutoff_time = add_to_date(now_datetime(), minutes=-30)
+	
+	# Find DNs that were sent to ShipStation but haven't received tracking
+	stale_dns = frappe.db.sql("""
+		SELECT name, shopify_order_number, creation, workflow_state,
+			   COALESCE(custom_shipstation_shipment_id, shipstation_shipment_id) as shipment_id
+		FROM `tabDelivery Note`
+		WHERE docstatus = 1
+		AND (custom_shipstation_shipment_id IS NOT NULL OR shipstation_shipment_id IS NOT NULL)
+		AND (custom_shipstation_tracking_number IS NULL OR custom_shipstation_tracking_number = '')
+		AND workflow_state = 'Cleared to Ship'
+		AND creation <= %s
+		AND creation >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+		ORDER BY creation ASC
+		LIMIT 50
+	""", (cutoff_time,), as_dict=True)
+	
+	if not stale_dns:
+		return
+	
+	frappe.log_error(
+		message=f"Found {len(stale_dns)} Delivery Notes awaiting ShipStation tracking sync",
+		title="Scheduled ShipStation Sync - Starting"
+	)
+	
+	synced = 0
+	failed = 0
+	
+	for dn in stale_dns:
+		try:
+			result = manually_sync_shipstation_tracking(dn.name)
+			if result.get("success"):
+				synced += 1
+				frappe.log_error(
+					message=f"Auto-synced {dn.name} ({dn.shopify_order_number}): {result.get('tracking_number')}",
+					title="Scheduled ShipStation Sync - Success"
+				)
+			else:
+				failed += 1
+				# Don't log every failure, just count them
+		except Exception as e:
+			failed += 1
+			frappe.log_error(
+				message=f"Error syncing {dn.name}: {str(e)}",
+				title="Scheduled ShipStation Sync - Error"
+			)
+	
+	if synced > 0 or failed > 0:
+		frappe.log_error(
+			message=f"Scheduled sync complete. Synced: {synced}, Failed: {failed}",
+			title="Scheduled ShipStation Sync - Complete"
+		)
+
