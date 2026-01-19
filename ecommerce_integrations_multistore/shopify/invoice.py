@@ -278,14 +278,15 @@ def auto_create_delivery_note(doc, method=None):
 		# - HTTP response returns immediately to the user
 		# - ShipStation API (5-30s) doesn't block the UI
 		#
-		# The job runs after the current transaction commits because we're
-		# enqueueing it here (before commit), and the worker will fetch
-		# fresh data from the database.
+		# IMPORTANT: enqueue_after_commit=True ensures the job only runs
+		# AFTER the current transaction commits. This prevents race conditions
+		# where the worker tries to fetch the DN before it's committed.
 		
 		frappe.enqueue(
 			"ecommerce_integrations_multistore.shopify.invoice.process_post_submit_tasks",
 			queue="default",
 			timeout=300,  # 5 minutes max for external API calls
+			enqueue_after_commit=True,  # FIX: Wait for DN to be committed before running job
 			invoice_name=doc.name,
 			dn_name=dn.name,
 			setting_name=setting.name,
@@ -315,12 +316,37 @@ def process_post_submit_tasks(invoice_name, dn_name, setting_name):
 		dn_name: Delivery Note name
 		setting_name: Shopify Store name
 	"""
+	import time
+	
 	frappe.log_error(
 		message=f"Background job starting for invoice {invoice_name}, DN {dn_name}",
 		title="Post-Submit Job - Start"
 	)
 	
 	try:
+		# Safety check: Wait for DN to exist (handles edge cases where commit is delayed)
+		max_wait = 10  # seconds
+		waited = 0
+		while not frappe.db.exists("Delivery Note", dn_name) and waited < max_wait:
+			time.sleep(1)
+			waited += 1
+			frappe.log_error(
+				message=f"Waiting for DN {dn_name} to exist... ({waited}s)",
+				title="Post-Submit Job - Waiting"
+			)
+		
+		if not frappe.db.exists("Delivery Note", dn_name):
+			frappe.log_error(
+				message=f"Delivery Note {dn_name} not found after {max_wait}s wait. Invoice: {invoice_name}. The DN may have been rolled back or deleted.",
+				title="Post-Submit Job - DN Not Found"
+			)
+			# Still try to create payment entry for the invoice
+			invoice = frappe.get_doc("Sales Invoice", invoice_name)
+			setting = frappe.get_doc(STORE_DOCTYPE, setting_name)
+			create_payment_entry_for_invoice(invoice, setting)
+			frappe.db.commit()
+			return
+		
 		# Fetch documents fresh from database
 		invoice = frappe.get_doc("Sales Invoice", invoice_name)
 		delivery_note = frappe.get_doc("Delivery Note", dn_name)
