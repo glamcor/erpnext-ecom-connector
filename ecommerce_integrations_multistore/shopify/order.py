@@ -759,15 +759,26 @@ def create_sales_order(shopify_order, setting, company=None):
 					{"shopify_address_id": shipping_addr.get("id")},
 					"name"
 				)
-			# If not found, try by address title
+			# If not found by ID, find by EXACT address content match
+			# This is critical for drop-ship customers who have many different shipping addresses
 			if not shipping_address_name:
-				# Create expected address title format
-				address_title = f"{customer}-Shipping"
-				shipping_address_name = frappe.db.get_value(
-					"Address",
-					{"address_title": address_title},
-					"name"
-				)
+				# Query addresses linked to this customer with matching content
+				shipping_address_name = frappe.db.sql("""
+					SELECT a.name 
+					FROM `tabAddress` a
+					INNER JOIN `tabDynamic Link` dl ON dl.parent = a.name
+					WHERE dl.link_doctype = 'Customer' 
+					AND dl.link_name = %s
+					AND dl.parenttype = 'Address'
+					AND a.address_type = 'Shipping'
+					AND a.address_line1 = %s
+					AND a.city = %s
+					AND a.pincode = %s
+					ORDER BY a.modified DESC
+					LIMIT 1
+				""", (customer, shipping_addr.get("address1") or "", shipping_addr.get("city") or "", shipping_addr.get("zip") or ""), as_dict=False)
+				
+				shipping_address_name = shipping_address_name[0][0] if shipping_address_name else None
 		
 		so_dict = {
 			"doctype": "Sales Order",
@@ -997,27 +1008,47 @@ def create_sales_invoice(shopify_order, setting, company=None):
 					"name"
 				)
 			
-			# If not found by ID, find by customer link and address_type
+			# If not found by ID, find by EXACT address content match
+			# This is critical for drop-ship customers who have many different shipping addresses
 			if not shipping_address:
-				# Query the Dynamic Link child table
+				# Build filters for exact address match
+				addr_filters = {
+					"address_line1": shipping_addr.get("address1") or "",
+					"city": shipping_addr.get("city") or "",
+					"pincode": shipping_addr.get("zip") or "",
+				}
+				
+				# Query addresses linked to this customer with matching content
 				shipping_address = frappe.db.sql("""
-					SELECT parent 
-					FROM `tabDynamic Link`
-					WHERE link_doctype = 'Customer' 
-					AND link_name = %s
-					AND parenttype = 'Address'
-					AND parent IN (
-						SELECT name FROM `tabAddress` WHERE address_type = 'Shipping'
-					)
-					ORDER BY modified DESC
+					SELECT a.name 
+					FROM `tabAddress` a
+					INNER JOIN `tabDynamic Link` dl ON dl.parent = a.name
+					WHERE dl.link_doctype = 'Customer' 
+					AND dl.link_name = %s
+					AND dl.parenttype = 'Address'
+					AND a.address_type = 'Shipping'
+					AND a.address_line1 = %s
+					AND a.city = %s
+					AND a.pincode = %s
+					ORDER BY a.modified DESC
 					LIMIT 1
-				""", (customer,), as_dict=False)
+				""", (customer, addr_filters["address_line1"], addr_filters["city"], addr_filters["pincode"]), as_dict=False)
 				
 				shipping_address = shipping_address[0][0] if shipping_address else None
-				frappe.log_error(
-					message=f"Found shipping address by customer link: {shipping_address}",
-					title="Address Lookup Debug"
-				)
+				
+				if shipping_address:
+					frappe.log_error(
+						message=f"Found shipping address by exact content match: {shipping_address}",
+						title="Address Lookup Debug"
+					)
+				else:
+					# Log warning - address content doesn't match any existing address
+					frappe.log_error(
+						message=f"No exact address match found for customer {customer}. "
+								f"Address: {shipping_addr.get('address1')}, {shipping_addr.get('city')}, {shipping_addr.get('zip')}. "
+								f"A new address should have been created by sync_customer.",
+						title="Address Lookup Warning - No Match"
+					)
 		
 		# Get default debit_to account for the company
 		debit_to = frappe.get_cached_value("Company", setting.company, "default_receivable_account")

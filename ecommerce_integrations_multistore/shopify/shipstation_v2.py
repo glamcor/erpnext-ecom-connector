@@ -168,6 +168,39 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key, retry_count=0, 
     # Get customer and shipping details
     customer = frappe.get_doc("Customer", delivery_note.customer)
     
+    # Get recipient name from shipping address if available
+    # For drop-ship orders (like Knocking Orders), the shipping recipient is different 
+    # from the customer. The customer is the reseller, but we ship to their end customer.
+    recipient_name = customer.customer_name  # Default to customer name
+    recipient_company = ""  # Company name for business addresses
+    
+    if delivery_note.shipping_address_name:
+        shipping_address = frappe.get_doc("Address", delivery_note.shipping_address_name)
+        
+        # Try to get recipient name from address
+        # Priority order:
+        # 1. custom_recipient_name (new field storing Shopify shipping_address.name)
+        # 2. recipient_name (if field exists)
+        # 3. address_title (if it looks like a person's name, not "Customer-Shipping" format)
+        # 4. Fall back to customer name
+        
+        # Check for custom recipient name field (stores Shopify shipping address name)
+        if hasattr(shipping_address, 'custom_recipient_name') and shipping_address.custom_recipient_name:
+            recipient_name = shipping_address.custom_recipient_name
+        elif hasattr(shipping_address, 'recipient_name') and shipping_address.recipient_name:
+            recipient_name = shipping_address.recipient_name
+        # If address_title looks like a name (not "CustomerName-Shipping" format)
+        elif shipping_address.address_title:
+            # Check if it's NOT in the typical "Name-Type" or "Name-ID" format
+            title = shipping_address.address_title
+            if '-Shipping' not in title and '-Billing' not in title and not title.endswith(('-' + str(shipping_address.get('shopify_address_id', '')))):
+                # Likely a real name
+                recipient_name = title
+        
+        # Check for company name on the address
+        if hasattr(shipping_address, 'custom_company_name') and shipping_address.custom_company_name:
+            recipient_company = shipping_address.custom_company_name
+    
     # Build ShipStation shipment for V2 API (following known-good schema)
     # carrier_id and service_code will be determined by ShipStation automation rules
     shipment = {
@@ -176,10 +209,10 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key, retry_count=0, 
         "external_shipment_id": delivery_note.name,  # Our reference
         "create_sales_order": True,  # Create Order in ShipStation UI (not just Shipment API object)
         "ship_to": {
-            "name": customer.customer_name,
+            "name": recipient_name,
             "phone": customer.mobile_no or "(000) 000-0000",  # Default if no phone
             "email": customer.email_id or "",
-            "company_name": customer.customer_name,
+            "company_name": recipient_company or "",  # Only set if we have a company
             "address_line1": "",
             "address_line2": "",
             "city_locality": "",

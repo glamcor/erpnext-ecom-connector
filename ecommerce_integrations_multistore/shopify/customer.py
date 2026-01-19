@@ -443,7 +443,20 @@ class ShopifyCustomer(EcommerceCustomer):
 
 
 def _map_address_fields(shopify_address, customer_name, address_type, email):
-	"""returns dict with shopify address fields mapped to equivalent ERPNext fields"""
+	"""returns dict with shopify address fields mapped to equivalent ERPNext fields
+	
+	Shopify address fields:
+	- name: Full recipient name (e.g., "Marty Slayton Jordan")
+	- first_name, last_name: Separate name fields
+	- company: Company name if provided
+	- address1, address2: Street address lines
+	- city, province, zip, country: Location fields
+	- phone: Phone number
+	
+	For drop-ship orders (like Knocking Orders), the customer in ERPNext is the 
+	reseller, but the shipping recipient is different. We need to store the 
+	recipient name from the shipping address.
+	"""
 	
 	# Build unique address title
 	# Option A: Use Shopify address ID if available (customer saved addresses)
@@ -457,6 +470,19 @@ def _map_address_fields(shopify_address, customer_name, address_type, email):
 		# This will be updated if address changes (same as current behavior)
 		address_title = f"{customer_name}-{address_type}"
 	
+	# Get recipient name from Shopify address
+	# Priority: 'name' field, then first_name + last_name, then customer_name
+	recipient_name = shopify_address.get("name")
+	if not recipient_name:
+		first = shopify_address.get("first_name", "")
+		last = shopify_address.get("last_name", "")
+		recipient_name = f"{first} {last}".strip()
+	if not recipient_name:
+		recipient_name = customer_name
+	
+	# Get company name (important for B2B/drop-ship)
+	company_name = shopify_address.get("company", "")
+	
 	address_fields = {
 		"address_title": address_title,
 		"address_type": address_type,
@@ -468,6 +494,10 @@ def _map_address_fields(shopify_address, customer_name, address_type, email):
 		"pincode": shopify_address.get("zip"),
 		"country": shopify_address.get("country"),
 		"email_id": email,
+		# Store recipient name and company for ShipStation
+		# These are custom fields that need to be created in ERPNext
+		"custom_recipient_name": recipient_name,
+		"custom_company_name": company_name,
 	}
 
 	phone = shopify_address.get("phone")
