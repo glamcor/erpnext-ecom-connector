@@ -12,8 +12,44 @@ frappe.ui.form.on('Delivery Note', {
 		let is_shopify_dn = frm.doc.shopify_order_id || frm.doc.custom_shopify_order_id;
 		
 		if (frm.doc.docstatus === 1 && (shipstation_id || is_shopify_dn)) {
-			// Check if tracking is missing
-			if (!tracking_number) {
+			// If DN has no ShipStation ID, show "Resend to ShipStation" button
+			if (!shipstation_id && is_shopify_dn && !tracking_number) {
+				frm.add_custom_button(__('Resend to ShipStation'), function() {
+					frappe.confirm(
+						__('This will send the Delivery Note to ShipStation. Continue?'),
+						function() {
+							frappe.call({
+								method: 'ecommerce_integrations_multistore.shopify.shipstation_v2.resend_to_shipstation',
+								args: {
+									delivery_note_name: frm.doc.name
+								},
+								freeze: true,
+								freeze_message: __('Sending to ShipStation...'),
+								callback: function(r) {
+									if (r.message) {
+										if (r.message.success) {
+											frappe.show_alert({
+												message: __('Sent to ShipStation. Shipment ID: {0}', [r.message.shipment_id || 'N/A']),
+												indicator: 'green'
+											}, 5);
+											frm.reload_doc();
+										} else {
+											frappe.msgprint({
+												title: __('Failed to Send'),
+												indicator: 'red',
+												message: r.message.error || 'Unknown error'
+											});
+										}
+									}
+								}
+							});
+						}
+					);
+				}, __('ShipStation'));
+			}
+			
+			// Check if tracking is missing but has ShipStation ID
+			if (!tracking_number && shipstation_id) {
 				frm.add_custom_button(__('Sync Tracking from ShipStation'), function() {
 					frappe.call({
 						method: 'ecommerce_integrations_multistore.shopify.shipstation_webhook.manually_sync_shipstation_tracking',

@@ -135,12 +135,14 @@ def is_us_domestic_order(delivery_note):
     # No shipping address, assume not US domestic
     return False
 
-def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
+def send_delivery_note_to_shipstation_v2(delivery_note, api_key, retry_count=0, max_retries=3):
     """Send Delivery Note to ShipStation using V2 API.
     
     Args:
         delivery_note: ERPNext Delivery Note document
         api_key: ShipStation V2 Production API Key
+        retry_count: Current retry attempt (for rate limit handling)
+        max_retries: Maximum number of retries for rate limit errors
     
     Returns:
         dict: Response from ShipStation API
@@ -341,9 +343,32 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key):
             except Exception as decode_error:
                 error_body = f"Could not decode response: {str(decode_error)}"
         
+        # Handle rate limit (429) with exponential backoff retry
+        if status_code == 429 and retry_count < max_retries:
+            import time
+            import random
+            
+            # Exponential backoff: 2^retry * 1 second + random jitter
+            wait_time = (2 ** retry_count) + random.uniform(0, 1)
+            
+            frappe.log_error(
+                message=f"Rate limit hit for {delivery_note.name}. Retry {retry_count + 1}/{max_retries} after {wait_time:.1f}s",
+                title="ShipStation Rate Limit - Retrying"
+            )
+            
+            time.sleep(wait_time)
+            
+            # Retry the request
+            return send_delivery_note_to_shipstation_v2(
+                delivery_note, 
+                api_key, 
+                retry_count=retry_count + 1, 
+                max_retries=max_retries
+            )
+        
         error_detail = f"HTTP {status_code}: {error_body}"
         frappe.log_error(
-            message=f"Failed to send {delivery_note.name} to ShipStation: {error_detail}\nURL: {url}\nRequest: {payload}",
+            message=f"Failed to send {delivery_note.name} to ShipStation: {error_detail}\nURL: {url}\nRetry count: {retry_count}",
             title="ShipStation API Error"
         )
         return {
@@ -404,6 +429,59 @@ def update_shipstation_integration_for_v2(delivery_note, setting):
             title="ShipStation Configuration Missing"
         )
         return {"success": False, "error": "API Key not configured"}
+
+
+@frappe.whitelist()
+def resend_to_shipstation(delivery_note_name):
+    """Resend a Delivery Note to ShipStation.
+    
+    Use this when a DN failed to send initially (e.g., rate limit error).
+    
+    Args:
+        delivery_note_name: Name of the Delivery Note to resend
+    
+    Returns:
+        dict: Result of the operation
+    """
+    try:
+        if not frappe.db.exists("Delivery Note", delivery_note_name):
+            return {"success": False, "error": f"Delivery Note {delivery_note_name} not found"}
+        
+        dn = frappe.get_doc("Delivery Note", delivery_note_name)
+        
+        # Check if already has a ShipStation ID
+        existing_id = dn.get("custom_shipstation_shipment_id") or dn.get("shipstation_shipment_id")
+        if existing_id:
+            return {
+                "success": False, 
+                "error": f"Delivery Note already has ShipStation ID: {existing_id}. Use 'Sync Tracking' instead."
+            }
+        
+        # Get store settings
+        store_name = dn.get("shopify_store")
+        if not store_name:
+            return {"success": False, "error": "No Shopify Store linked to this Delivery Note"}
+        
+        setting = frappe.get_doc("Shopify Store", store_name)
+        
+        # Send to ShipStation
+        result = update_shipstation_integration_for_v2(dn, setting)
+        
+        if result.get("success"):
+            frappe.db.commit()
+            frappe.log_error(
+                message=f"Successfully resent {delivery_note_name} to ShipStation. Shipment ID: {result.get('shipment_id')}",
+                title="ShipStation Resend Success"
+            )
+        
+        return result
+        
+    except Exception as e:
+        frappe.log_error(
+            message=f"Error resending {delivery_note_name} to ShipStation: {str(e)}\n{frappe.get_traceback()}",
+            title="ShipStation Resend Error"
+        )
+        return {"success": False, "error": str(e)}
 
 
 def cancel_shipstation_shipment(delivery_note):
