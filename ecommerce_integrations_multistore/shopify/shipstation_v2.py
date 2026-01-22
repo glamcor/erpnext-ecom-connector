@@ -207,17 +207,23 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key, retry_count=0, 
     # Get Shopify order number for reference
     shopify_order_number = delivery_note.get("shopify_order_number") or ""
     
+    # Build internal notes with store and order reference (instead of in external_order_id which breaks pick list grouping)
+    internal_notes = f"Store: {store_name} | Shopify Order: {shopify_order_number}" if store_name else f"Shopify Order: {shopify_order_number}"
+    
     # Build ShipStation shipment for V2 API (following known-good schema)
     # carrier_id and service_code will be determined by ShipStation automation rules
     shipment = {
         "carrier_id": "se-1553310",  # UPS carrier ID - ShipStation will use automation rules
         "service_code": "ups_ground_saver",  # Default service - ShipStation will optimize
         "external_shipment_id": delivery_note.name,  # Our reference (DN name)
-        "external_order_id": f"{store_name}|{shopify_order_number}" if store_name else shopify_order_number,  # Store name + order number for sorting
+        # Note: Removed store name from external_order_id - it was breaking pick list item grouping
+        # ShipStation shows external_order_id in item descriptions which prevents quantity summarization
+        "external_order_id": shopify_order_number,  # Just the order number for grouping
         "create_sales_order": True,  # Create Order in ShipStation UI (not just Shipment API object)
         # Note: order_source_code requires predefined values (shopify, amazon, etc.) - removed
         # Using tags instead for custom store name filtering
         "tags": [{"name": store_name}] if store_name else [],  # Tag with store name for easy filtering
+        "internal_notes": internal_notes,  # Store/order reference goes here instead
         "ship_to": {
             "name": recipient_name,
             "phone": customer.mobile_no or "(000) 000-0000",  # Default if no phone
