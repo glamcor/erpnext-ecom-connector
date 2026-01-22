@@ -1,7 +1,7 @@
 """ShipStation Webhook Handler for receiving tracking updates."""
 
 import frappe
-from frappe.utils import flt, cstr
+from frappe.utils import flt, cstr, cint
 import json
 
 from ecommerce_integrations_multistore.shopify.constants import STORE_LINK_FIELD
@@ -924,13 +924,14 @@ def scheduled_shipstation_tracking_sync():
 	Runs every 15 minutes to find Delivery Notes that:
 	1. Have a ShipStation shipment ID (were sent to ShipStation)
 	2. Are missing tracking info (webhook didn't sync back)
-	3. Are in "Cleared to Ship" workflow state (not yet marked shipped)
-	4. Were created more than 30 minutes ago (give webhooks time to arrive)
+	3. Were created more than 30 minutes ago (give webhooks time to arrive)
+	4. Are NOT in "Shipped" or "Cancelled" workflow state
 	
 	This catches cases where:
 	- ShipStation webhook failed to fire
 	- Webhook was received but processing failed
 	- DN lookup failed due to field mismatch
+	- Batch shipments where only some webhooks fired
 	"""
 	from frappe.utils import now_datetime, add_to_date
 	
@@ -940,21 +941,27 @@ def scheduled_shipstation_tracking_sync():
 	cutoff_time = add_to_date(now_datetime(), minutes=-30)
 	
 	# Find DNs that were sent to ShipStation but haven't received tracking
+	# Look for ANY submitted DN with shipment ID but no tracking
+	# Exclude only "Shipped" and "Cancelled" states (or NULL workflow state is OK)
 	stale_dns = frappe.db.sql("""
 		SELECT name, shopify_order_number, creation, workflow_state,
 			   COALESCE(custom_shipstation_shipment_id, shipstation_shipment_id) as shipment_id
 		FROM `tabDelivery Note`
 		WHERE docstatus = 1
-		AND (custom_shipstation_shipment_id IS NOT NULL OR shipstation_shipment_id IS NOT NULL)
+		AND (
+			(custom_shipstation_shipment_id IS NOT NULL AND custom_shipstation_shipment_id != '')
+			OR (shipstation_shipment_id IS NOT NULL AND shipstation_shipment_id != '')
+		)
 		AND (custom_shipstation_tracking_number IS NULL OR custom_shipstation_tracking_number = '')
-		AND workflow_state = 'Cleared to Ship'
+		AND (workflow_state IS NULL OR workflow_state NOT IN ('Shipped', 'Cancelled'))
 		AND creation <= %s
 		AND creation >= DATE_SUB(NOW(), INTERVAL 7 DAY)
 		ORDER BY creation ASC
-		LIMIT 50
+		LIMIT 100
 	""", (cutoff_time,), as_dict=True)
 	
 	if not stale_dns:
+		# No stale DNs - this is normal, don't log
 		return
 	
 	frappe.log_error(
@@ -964,6 +971,7 @@ def scheduled_shipstation_tracking_sync():
 	
 	synced = 0
 	failed = 0
+	not_shipped_yet = 0
 	
 	for dn in stale_dns:
 		try:
@@ -974,9 +982,16 @@ def scheduled_shipstation_tracking_sync():
 					message=f"Auto-synced {dn.name} ({dn.shopify_order_number}): {result.get('tracking_number')}",
 					title="Scheduled ShipStation Sync - Success"
 				)
+			elif "not be shipped yet" in result.get("message", "").lower():
+				# Order exists in ShipStation but hasn't been shipped yet - this is normal
+				not_shipped_yet += 1
 			else:
 				failed += 1
-				# Don't log every failure, just count them
+				# Log failures that aren't "not shipped yet"
+				frappe.log_error(
+					message=f"Failed to sync {dn.name}: {result.get('message')}",
+					title="Scheduled ShipStation Sync - Failed"
+				)
 		except Exception as e:
 			failed += 1
 			frappe.log_error(
@@ -984,9 +999,197 @@ def scheduled_shipstation_tracking_sync():
 				title="Scheduled ShipStation Sync - Error"
 			)
 	
-	if synced > 0 or failed > 0:
+	# Only log summary if there was actual activity
+	if synced > 0:
 		frappe.log_error(
-			message=f"Scheduled sync complete. Synced: {synced}, Failed: {failed}",
+			message=f"Scheduled sync complete. Synced: {synced}, Not shipped yet: {not_shipped_yet}, Failed: {failed}",
 			title="Scheduled ShipStation Sync - Complete"
+		)
+	
+	# Also run the reverse check - poll ShipStation for shipped orders
+	# This catches cases where we never got the shipment ID back
+	try:
+		poll_shipstation_for_shipped_orders()
+	except Exception as e:
+		frappe.log_error(
+			message=f"Error polling ShipStation: {str(e)}",
+			title="Scheduled ShipStation Poll - Error"
+		)
+
+
+def poll_shipstation_for_shipped_orders(hours_back=24):
+	"""Poll ShipStation API for recently shipped orders and match to ERPNext DNs.
+	
+	This is a fallback mechanism for when:
+	1. The webhook never fired
+	2. We never got the shipment ID back when sending to ShipStation
+	3. The DN was sent to ShipStation but something went wrong
+	
+	We match by external_shipment_id which should be the DN name (e.g., MAT-DN-2026-00123).
+	
+	Args:
+		hours_back: How many hours to look back for shipped orders (default 24)
+	"""
+	import requests
+	from datetime import datetime, timedelta
+	
+	frappe.set_user("Administrator")
+	
+	# Get all enabled ShipStation stores
+	stores = frappe.get_all(
+		"Shopify Store",
+		filters={"enabled": 1, "shipstation_enabled": 1},
+		fields=["name"]
+	)
+	
+	if not stores:
+		return
+	
+	total_synced = 0
+	total_checked = 0
+	
+	for store in stores:
+		try:
+			setting = frappe.get_doc("Shopify Store", store.name)
+			api_key = setting.get_password("shipstation_api_key")
+			
+			if not api_key:
+				continue
+			
+			headers = {
+				"API-Key": api_key,
+				"Accept": "application/json"
+			}
+			
+			# Calculate date range
+			ship_date_end = datetime.now()
+			ship_date_start = ship_date_end - timedelta(hours=hours_back)
+			
+			# Fetch recently shipped labels from ShipStation
+			# The labels endpoint returns all labels with tracking info
+			labels_url = "https://api.shipstation.com/v2/labels"
+			params = {
+				"created_at_start": ship_date_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+				"created_at_end": ship_date_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+				"label_status": "completed",
+				"page_size": 100
+			}
+			
+			response = requests.get(labels_url, headers=headers, params=params, timeout=30)
+			
+			if response.status_code != 200:
+				frappe.log_error(
+					message=f"ShipStation API error for {store.name}: {response.status_code}",
+					title="ShipStation Poll - API Error"
+				)
+				continue
+			
+			data = response.json()
+			labels = data.get("labels", [])
+			
+			for label in labels:
+				total_checked += 1
+				
+				# Get the external_shipment_id (should be DN name)
+				external_id = label.get("external_shipment_id")
+				shipment_id = label.get("shipment_id")
+				tracking_number = label.get("tracking_number")
+				carrier = label.get("service_code") or label.get("carrier_id")
+				
+				if not external_id or not tracking_number:
+					continue
+				
+				# Check if this is an ERPNext DN name
+				if not external_id.startswith("MAT-DN-"):
+					continue
+				
+				# Check if DN exists and needs tracking
+				dn_data = frappe.db.get_value(
+					"Delivery Note",
+					external_id,
+					["name", "docstatus", "custom_shipstation_tracking_number", "workflow_state"],
+					as_dict=True
+				)
+				
+				if not dn_data:
+					continue
+				
+				# Skip if already has tracking
+				if dn_data.custom_shipstation_tracking_number:
+					continue
+				
+				# Skip if not submitted
+				if dn_data.docstatus != 1:
+					continue
+				
+				# Update the DN with tracking info
+				try:
+					dn = frappe.get_doc("Delivery Note", external_id)
+					
+					# Update tracking fields
+					dn.db_set("custom_shipstation_tracking_number", tracking_number, update_modified=False)
+					if carrier:
+						dn.db_set("custom_shipstation_carrier", carrier, update_modified=False)
+					if shipment_id:
+						dn.db_set("custom_shipstation_shipment_id", shipment_id, update_modified=False)
+					
+					# Get shipping cost if available
+					shipment_cost = label.get("shipment_cost", {})
+					if isinstance(shipment_cost, dict):
+						cost = shipment_cost.get("amount")
+					else:
+						cost = shipment_cost
+					if cost:
+						dn.db_set("custom_shipstation_shipping_cost", flt(cost), update_modified=False)
+					
+					# Update workflow state
+					dn.db_set("workflow_state", "Shipped", update_modified=False)
+					
+					# Add comment
+					dn.add_comment(
+						comment_type="Info",
+						text=f"Auto-synced from ShipStation poll: Tracking {tracking_number}, Carrier: {carrier}"
+					)
+					
+					frappe.db.commit()
+					
+					# Update Shopify
+					shopify_order_id = dn.get("shopify_order_id")
+					shopify_store = dn.get(STORE_LINK_FIELD)
+					
+					if shopify_order_id and shopify_store:
+						try:
+							update_shopify_with_tracking_direct(
+								shopify_order_id=shopify_order_id,
+								shopify_store=shopify_store,
+								tracking_number=tracking_number,
+								carrier=carrier
+							)
+						except Exception:
+							pass  # Don't fail the whole process for Shopify update
+					
+					total_synced += 1
+					
+					frappe.log_error(
+						message=f"Polled and synced {external_id}: {tracking_number}",
+						title="ShipStation Poll - Synced"
+					)
+					
+				except Exception as e:
+					frappe.log_error(
+						message=f"Error updating {external_id} from poll: {str(e)}",
+						title="ShipStation Poll - Update Error"
+					)
+		
+		except Exception as e:
+			frappe.log_error(
+				message=f"Error polling ShipStation for store {store.name}: {str(e)}",
+				title="ShipStation Poll - Store Error"
+			)
+	
+	if total_synced > 0:
+		frappe.log_error(
+			message=f"ShipStation poll complete. Checked: {total_checked}, Synced: {total_synced}",
+			title="ShipStation Poll - Complete"
 		)
 
