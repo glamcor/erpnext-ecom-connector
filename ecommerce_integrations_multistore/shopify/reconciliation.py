@@ -889,14 +889,22 @@ def fix_missing_tracking(store_name, order_ids=None):
                 })
                 continue
             
-            # Update delivery note with tracking
+            # Update delivery note with tracking AND workflow state
             frappe.db.set_value(
                 "Delivery Note",
                 dn.name,
                 {
                     "custom_shipstation_tracking_number": tracking_info.get("tracking_number"),
-                    "custom_shipstation_carrier": tracking_info.get("carrier")
+                    "custom_shipstation_carrier": tracking_info.get("carrier"),
+                    "workflow_state": "Shipped"  # Mark as shipped since we have tracking
                 }
+            )
+            
+            # Add comment to DN
+            dn_doc = frappe.get_doc("Delivery Note", dn.name)
+            dn_doc.add_comment(
+                comment_type="Info",
+                text=f"Tracking synced from Shopify via reconciliation: {tracking_info.get('tracking_number')} ({tracking_info.get('carrier')})"
             )
             
             results["success"] += 1
@@ -983,6 +991,10 @@ def _create_delivery_note_with_tracking(shopify_order, setting, invoice, trackin
         dn.flags.ignore_mandatory = True
         dn.save(ignore_permissions=True)
         dn.submit()
+        
+        # Set workflow state to "Shipped" since this order is already shipped
+        # Must be done after submit because workflow states apply to submitted docs
+        dn.db_set("workflow_state", "Shipped", update_modified=False)
         
         # Add comment indicating this was already shipped
         dn.add_comment(
