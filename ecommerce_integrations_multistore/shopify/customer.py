@@ -266,11 +266,20 @@ class ShopifyCustomer(EcommerceCustomer):
 		
 		Strategy:
 		- If Shopify address has ID: Look up by shopify_address_id (saved customer address)
-		- If no ID: Look up by address_title with type suffix (inline order address)
-		- If address content changed: Update existing (for inline addresses)
-		- If new address with ID: Create new (preserves multiple saved addresses)
+		- If no ID (inline order address): Look up by EXACT CONTENT MATCH
+		  - If content matches: Use existing address (no update needed)
+		  - If content differs: CREATE NEW address (critical for drop-ship customers!)
+		
+		This is critical for drop-ship customers like "Knocking Orders" who place many orders
+		with different shipping addresses. Each order's shipping address must be preserved
+		as a separate Address document.
 		"""
 		shopify_address_id = shopify_address.get("id")
+		
+		# Extract address content for matching
+		addr_line1 = shopify_address.get("address1") or ""
+		addr_city = shopify_address.get("city") or ""
+		addr_zip = shopify_address.get("zip") or ""
 		
 		# Try to find existing address
 		old_address = None
@@ -292,21 +301,53 @@ class ShopifyCustomer(EcommerceCustomer):
 					title="Address Lookup - Found By ID"
 				)
 		else:
-			# Inline order address - lookup by title with type suffix
+			# Inline order address (no Shopify ID) - lookup by EXACT CONTENT MATCH
+			# This is critical for drop-ship customers with many different shipping addresses
 			frappe.log_error(
-				message=f"Looking for {address_type} address using get_customer_address_doc for customer {customer_name}",
-				title="Address Lookup - By Type"
+				message=f"Looking for {address_type} address by CONTENT for customer {customer_name}: {addr_line1}, {addr_city}, {addr_zip}",
+				title="Address Lookup - By Content"
 			)
-			old_address = self.get_customer_address_doc(address_type)
-			frappe.log_error(
-				message=f"get_customer_address_doc returned: {old_address.name if old_address else None}",
-				title="Address Lookup - Result"
-			)
+			
+			# Get customer doc to find linked addresses
+			try:
+				customer_doc = self.get_customer_doc()
+				
+				# Find address with matching content
+				matching_address = frappe.db.sql("""
+					SELECT a.name 
+					FROM `tabAddress` a
+					INNER JOIN `tabDynamic Link` dl ON dl.parent = a.name
+					WHERE dl.link_doctype = 'Customer' 
+					AND dl.link_name = %s
+					AND dl.parenttype = 'Address'
+					AND a.address_type = %s
+					AND a.address_line1 = %s
+					AND a.city = %s
+					AND a.pincode = %s
+					LIMIT 1
+				""", (customer_doc.name, address_type, addr_line1, addr_city, addr_zip), as_dict=True)
+				
+				if matching_address:
+					old_address = frappe.get_doc("Address", matching_address[0].name)
+					frappe.log_error(
+						message=f"Found {address_type} address by content match: {old_address.name}",
+						title="Address Lookup - Found By Content"
+					)
+				else:
+					frappe.log_error(
+						message=f"No content match found for {address_type} address. Will create new.",
+						title="Address Lookup - No Content Match"
+					)
+			except frappe.DoesNotExistError:
+				frappe.log_error(
+					message=f"Customer doc not found during address lookup",
+					title="Address Lookup - Customer Not Found"
+				)
 
 		if not old_address:
-			# Address doesn't exist - create new
+			# Address doesn't exist with this content - create new
 			frappe.log_error(
-				message=f"Creating new {address_type} address for {customer_name}. Address data: {shopify_address}",
+				message=f"Creating new {address_type} address for {customer_name}. Address: {addr_line1}, {addr_city}, {addr_zip}",
 				title="Customer Address Creation"
 			)
 			try:
@@ -322,20 +363,30 @@ class ShopifyCustomer(EcommerceCustomer):
 				)
 				raise
 		else:
-			# Address exists - update it (inline addresses) or skip (saved addresses with ID)
+			# Address exists with matching content
 			if shopify_address_id:
 				# Saved address - only update if data changed
 				# For now, skip update to preserve historical data
 				# (User can manage saved addresses in Shopify)
 				pass
 			else:
-				# Inline address - update with latest data
-				exclude_in_update = ["address_title", "address_type"]
+				# Inline address with matching content - update recipient name and company
+				# (These might change even if address is the same)
 				new_values = _map_address_fields(shopify_address, customer_name, address_type, email)
-
-				old_address.update({k: v for k, v in new_values.items() if k not in exclude_in_update})
+				
+				# Only update recipient name and company, not the address itself
+				fields_to_update = ["custom_recipient_name", "custom_company_name", "phone", "email_id"]
+				for field in fields_to_update:
+					if field in new_values and new_values[field]:
+						setattr(old_address, field, new_values[field])
+				
 				old_address.flags.ignore_mandatory = True
 				old_address.save()
+				
+				frappe.log_error(
+					message=f"Updated recipient info on existing address {old_address.name}: {new_values.get('custom_recipient_name')}",
+					title="Address Recipient Updated"
+				)
 			
 			# For multi-store, update address-store link
 			if self.store_name and shopify_address_id:
@@ -457,18 +508,21 @@ def _map_address_fields(shopify_address, customer_name, address_type, email):
 	reseller, but the shipping recipient is different. We need to store the 
 	recipient name from the shipping address.
 	"""
+	import hashlib
 	
 	# Build unique address title
 	# Option A: Use Shopify address ID if available (customer saved addresses)
-	# Fallback: Use address type suffix (order inline addresses without ID)
+	# Option B: Use content hash for inline order addresses (critical for drop-ship!)
 	shopify_address_id = shopify_address.get("id")
 	if shopify_address_id:
 		# Customer saved address - use ID for uniqueness
 		address_title = f"{customer_name}-{shopify_address_id}"
 	else:
-		# Order inline address - use type suffix
-		# This will be updated if address changes (same as current behavior)
-		address_title = f"{customer_name}-{address_type}"
+		# Order inline address - use content hash for uniqueness
+		# This is critical for drop-ship customers with many different addresses
+		addr_content = f"{shopify_address.get('address1', '')}-{shopify_address.get('city', '')}-{shopify_address.get('zip', '')}"
+		content_hash = hashlib.md5(addr_content.encode()).hexdigest()[:8]
+		address_title = f"{customer_name}-{address_type}-{content_hash}"
 	
 	# Get recipient name from Shopify address
 	# Priority: 'name' field, then first_name + last_name, then customer_name
