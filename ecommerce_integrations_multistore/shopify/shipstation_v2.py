@@ -201,13 +201,22 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key, retry_count=0, 
         if hasattr(shipping_address, 'custom_company_name') and shipping_address.custom_company_name:
             recipient_company = shipping_address.custom_company_name
     
+    # Get store name for tagging in ShipStation
+    store_name = delivery_note.get("shopify_store") or ""
+    
+    # Get Shopify order number for reference
+    shopify_order_number = delivery_note.get("shopify_order_number") or ""
+    
     # Build ShipStation shipment for V2 API (following known-good schema)
     # carrier_id and service_code will be determined by ShipStation automation rules
     shipment = {
         "carrier_id": "se-1553310",  # UPS carrier ID - ShipStation will use automation rules
         "service_code": "ups_ground_saver",  # Default service - ShipStation will optimize
-        "external_shipment_id": delivery_note.name,  # Our reference
+        "external_shipment_id": delivery_note.name,  # Our reference (DN name)
+        "external_order_id": f"{store_name}|{shopify_order_number}" if store_name else shopify_order_number,  # Store name + order number for sorting
+        "order_source_code": store_name or "ERPNext",  # Source identifier for filtering in ShipStation
         "create_sales_order": True,  # Create Order in ShipStation UI (not just Shipment API object)
+        "tags": [{"name": store_name}] if store_name else [],  # Tag with store name for easy filtering
         "ship_to": {
             "name": recipient_name,
             "phone": customer.mobile_no or "(000) 000-0000",  # Default if no phone
