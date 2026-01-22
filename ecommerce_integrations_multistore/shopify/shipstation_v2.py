@@ -214,8 +214,9 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key, retry_count=0, 
         "service_code": "ups_ground_saver",  # Default service - ShipStation will optimize
         "external_shipment_id": delivery_note.name,  # Our reference (DN name)
         "external_order_id": f"{store_name}|{shopify_order_number}" if store_name else shopify_order_number,  # Store name + order number for sorting
-        "order_source_code": store_name or "ERPNext",  # Source identifier for filtering in ShipStation
         "create_sales_order": True,  # Create Order in ShipStation UI (not just Shipment API object)
+        # Note: order_source_code requires predefined values (shopify, amazon, etc.) - removed
+        # Using tags instead for custom store name filtering
         "tags": [{"name": store_name}] if store_name else [],  # Tag with store name for easy filtering
         "ship_to": {
             "name": recipient_name,
