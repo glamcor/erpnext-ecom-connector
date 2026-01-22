@@ -1822,8 +1822,15 @@ def cancel_order(payload, request_id=None, store_name=None):
 				for dn_ref in delivery_notes:
 					dn = frappe.get_doc("Delivery Note", dn_ref.name)
 					
+					# Check for ShipStation ID (may have custom_ prefix or not)
+					shipstation_id = dn.get("custom_shipstation_shipment_id") or dn.get("shipstation_shipment_id")
+					
 					# Only cancel ShipStation if shipment exists
-					if dn.get("shipstation_shipment_id"):
+					if shipstation_id:
+						frappe.log_error(
+							message=f"Found ShipStation ID {shipstation_id} on DN {dn.name}, attempting to cancel in ShipStation",
+							title="Cancel Order - Cancelling ShipStation"
+						)
 						cancel_shipstation_shipment(dn)
 					else:
 						frappe.log_error(

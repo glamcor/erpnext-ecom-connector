@@ -618,12 +618,12 @@ def cancel_shipstation_shipment(delivery_note):
         dict: Result of the cancellation
     """
     try:
-        # Get the shipment ID from the delivery note
-        shipment_id = delivery_note.get("shipstation_shipment_id")
+        # Get the shipment ID from the delivery note (check both field names)
+        shipment_id = delivery_note.get("custom_shipstation_shipment_id") or delivery_note.get("shipstation_shipment_id")
         
         if not shipment_id:
             frappe.log_error(
-                message=f"No ShipStation shipment ID found on Delivery Note {delivery_note.name}",
+                message=f"No ShipStation shipment ID found on Delivery Note {delivery_note.name} (checked both custom_shipstation_shipment_id and shipstation_shipment_id)",
                 title="ShipStation Cancellation - No Shipment ID"
             )
             return {"success": False, "error": "No shipment ID"}
