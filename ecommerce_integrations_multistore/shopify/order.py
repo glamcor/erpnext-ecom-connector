@@ -1391,20 +1391,21 @@ def get_order_items(order_items, setting, delivery_date, taxes_inclusive, store_
 		item_accounting_class = getattr(item_doc, "accounting_class", None)
 		
 		# Build item dict
+		# Note: We don't set item_name here - ERPNext will auto-populate it from the Item master
+		# This avoids issues with Shopify titles exceeding ERPNext's 140 character limit
 		item_dict = {
-					"item_code": item_code,
-			"item_name": shopify_item.get("name") or shopify_item.get("title"),
+			"item_code": item_code,
 			"description": f"SKU: {shopify_item.get('sku')} | Variant: {shopify_item.get('variant_id')}",  # Store Shopify identifiers
-					"rate": _get_item_price(shopify_item, taxes_inclusive),
-					"delivery_date": delivery_date,
-					"qty": shopify_item.get("quantity"),
+			"rate": _get_item_price(shopify_item, taxes_inclusive),
+			"delivery_date": delivery_date,
+			"qty": shopify_item.get("quantity"),
 			"stock_uom": uom,
 			"uom": uom,  # Sales Invoice uses 'uom' field
-					"warehouse": setting.warehouse,
-					ORDER_ITEM_DISCOUNT_FIELD: (
-						_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
-					),
-				}
+			"warehouse": setting.warehouse,
+			ORDER_ITEM_DISCOUNT_FIELD: (
+				_get_total_discount(shopify_item) / cint(shopify_item.get("quantity"))
+			),
+		}
 		
 		# Only add income_account if we found one (optional for ignore_validate mode)
 		if income_account:
