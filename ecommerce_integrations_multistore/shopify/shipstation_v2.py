@@ -527,6 +527,87 @@ def resend_to_shipstation(delivery_note_name):
         return {"success": False, "error": str(e)}
 
 
+@frappe.whitelist()
+def bulk_resend_to_shipstation(delivery_notes):
+    """Bulk resend multiple Delivery Notes to ShipStation.
+    
+    Args:
+        delivery_notes: JSON string of Delivery Note names
+    
+    Returns:
+        dict: Summary of results (sent, skipped, failed, errors)
+    """
+    import json
+    
+    if isinstance(delivery_notes, str):
+        delivery_notes = json.loads(delivery_notes)
+    
+    results = {
+        "sent": 0,
+        "skipped": 0,
+        "failed": 0,
+        "errors": []
+    }
+    
+    for dn_name in delivery_notes:
+        try:
+            # Check if DN exists and is submitted
+            dn_data = frappe.db.get_value(
+                "Delivery Note",
+                dn_name,
+                ["docstatus", "custom_shipstation_shipment_id", "shipstation_shipment_id", 
+                 "custom_shipstation_tracking_number", "shipstation_tracking_number", "shopify_store"],
+                as_dict=True
+            )
+            
+            if not dn_data:
+                results["failed"] += 1
+                results["errors"].append(f"{dn_name}: Not found")
+                continue
+            
+            if dn_data.docstatus != 1:
+                results["skipped"] += 1
+                continue
+            
+            # Skip if already has ShipStation ID
+            existing_id = dn_data.custom_shipstation_shipment_id or dn_data.shipstation_shipment_id
+            if existing_id:
+                results["skipped"] += 1
+                continue
+            
+            # Skip if already has tracking (shipped outside ShipStation)
+            existing_tracking = dn_data.custom_shipstation_tracking_number or dn_data.shipstation_tracking_number
+            if existing_tracking:
+                results["skipped"] += 1
+                continue
+            
+            # Skip if no store linked
+            if not dn_data.shopify_store:
+                results["skipped"] += 1
+                results["errors"].append(f"{dn_name}: No Shopify Store linked")
+                continue
+            
+            # Resend to ShipStation
+            result = resend_to_shipstation(dn_name)
+            
+            if result.get("success"):
+                results["sent"] += 1
+            else:
+                results["failed"] += 1
+                results["errors"].append(f"{dn_name}: {result.get('error', 'Unknown error')}")
+                
+        except Exception as e:
+            results["failed"] += 1
+            results["errors"].append(f"{dn_name}: {str(e)}")
+    
+    frappe.log_error(
+        message=f"Bulk resend complete. Sent: {results['sent']}, Skipped: {results['skipped']}, Failed: {results['failed']}",
+        title="ShipStation Bulk Resend Complete"
+    )
+    
+    return results
+
+
 def cancel_shipstation_shipment(delivery_note):
     """Cancel a shipment in ShipStation when order is cancelled.
     
