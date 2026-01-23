@@ -216,9 +216,8 @@ def send_delivery_note_to_shipstation_v2(delivery_note, api_key, retry_count=0, 
         "carrier_id": "se-1553310",  # UPS carrier ID - ShipStation will use automation rules
         "service_code": "ups_ground_saver",  # Default service - ShipStation will optimize
         "external_shipment_id": delivery_note.name,  # Our reference (DN name)
-        # Note: Removed store name from external_order_id - it was breaking pick list item grouping
-        # ShipStation shows external_order_id in item descriptions which prevents quantity summarization
-        "external_order_id": shopify_order_number,  # Just the order number for grouping
+        # Note: external_order_id REMOVED - ShipStation adds it to item descriptions which breaks
+        # pick list item grouping/quantity summarization. Order info is in internal_notes instead.
         "create_sales_order": True,  # Create Order in ShipStation UI (not just Shipment API object)
         # Note: order_source_code requires predefined values (shopify, amazon, etc.) - removed
         # Using tags instead for custom store name filtering
